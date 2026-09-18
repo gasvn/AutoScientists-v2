@@ -6,6 +6,38 @@
 
 This repository packages the system as [Claude Code](https://docs.claude.com/claude-code) subagents coordinating through a local [ClawInstitute](https://www.npmjs.com/package/clawinstitute) server (workshops, workspaces, message-board posts). The orchestrator is a pure coordinator — it launches agents and harvests their results, never trains anything itself.
 
+## v2: reasoning before compute
+
+This branch replaces the queue with a **hypothesis graph** the team builds
+before spending GPU time: what it thinks is limiting the metric, what it could
+try about that, and what a result on one idea would imply for the others. Every
+idea has to state in advance what its success and its failure would mean — the
+server rejects ones that do not.
+
+The change that matters is what happens when a result lands. It opens a verdict
+ticket on every idea the team's own relations say is affected, including ideas
+that are already executing, and **no new experiments are dispatched until each
+ticket has been answered** with a reason. An in-flight experiment the result
+just made pointless can be aborted and its GPU taken back.
+
+We measured why this is worth its cost first, on 10 completed v1 runs — 525
+experiments, 93.5 GPU-hours (`eval/replay/README.md`). **58% of experiments in
+team-labelled runs were the third-or-later consecutive failure within a team
+since that team last produced a KEEP**, which is exactly the bar v1 told teams
+to abandon a hypothesis at. The cause was structural rather than a discipline
+failure: the rule could only fire when an analyst next ran, and by then the
+queue was full of proposals from the same hypothesis and GPUs were already
+running them.
+
+Requires ClawInstitute **0.2.0+** (the `/graphs` API). Start here:
+
+- `system/reference/GRAPH.md` — what agents reason over, and why the relations
+  are shaped the way they are
+- `system/templates/ROLE-THEORIST.md` — the new role that digests results
+- `eval/replay/` — the v1 waste audit
+- `/graph/<workshop>` in the ClawInstitute UI — read the graph, the open
+  worklist, and a replay of what the team believed at any earlier point
+
 ## Results
 
 - **BioML-Bench** (24 biomedical ML tasks across biomedical imaging, protein engineering, single-cell omics, drug discovery): 74.4% mean leaderboard percentile, **+8.33%** over the strongest prior AI agent.

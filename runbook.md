@@ -101,32 +101,52 @@ Before proceeding, read these to understand the system:
 
 ```
 system/reference/SKILL.md          — how multi-agent coordination works
+system/reference/GRAPH.md          — the hypothesis graph: what agents reason over
 system/reference/LOGGING.md        — log formats
 system/templates/HEARTBEAT.md      — agent boot template (launch.py uses this)
 task/TASK.md                       — the task problem definition
 task-profile.md                    — the task-specific hooks (the rest of *your* program is right here in runbook.md)
 ```
 
-## Step 3 — Dimension discussion
+## Step 3 — Round 0: build the graph
 
-→ PROFILE HOOK: `discussion_policy` (defines whether discussion runs, when, and any extra prompt content)
+→ PROFILE HOOK: `discussion_policy` (defines whether Round 0 runs, when, and any extra prompt content)
 
-The base launch pattern (used if the profile says "run discussion"):
+Before any compute is spent, the team works out what it thinks is limiting the
+metric and what it could do about that. The output is not a document — it is a
+graph on the server that every later step reads and writes.
+
+The round has a shape, and the order matters:
+
+1. **Diagnoses, written blind.** Each agent proposes what it believes the
+   binding constraint is, from the baseline code, the task spec and the
+   training curve — *before reading anyone else's*. Launching them in parallel
+   is what makes this blind; do not stagger them. Six agents that have read
+   each other's diagnoses are one agent with extra latency.
+2. **Merge into 3–6 diagnosis nodes.** Keep a `D_unknown` and never close it.
+   A graph that has accounted for everything has stopped being a model of an
+   open problem.
+3. **Ideas with their what-if.** Each hangs off a diagnosis and states what it
+   would mean if it works and if it fails. The server rejects ones that do not.
+4. **Relations.** Especially `alternative` (same payoff — one working makes the
+   others worth less) and `independent` (different mechanisms — safe to run
+   together). Those two decide what can be cut and what can be parallelized.
+5. **Set NOW.** Exactly as many ideas as there are GPU agents.
 
 ```python
-# List non-monitor agents
 import os
 non_admin_agents = [a for a in os.listdir(FOCUS_ROOT / "agents") if "monitor" not in a]
 
 for agent_name in non_admin_agents:
     Agent(
-        description=f"{agent_name} discussion",
+        description=f"{agent_name} round 0",
         prompt=(
             f"You are {agent_name}.\n"
             f"FOCUS_ROOT={FOCUS_ROOT}\n"
             f"MODE=discussion\n"  # REQUIRED — routes the agent to HEARTBEAT Part 2
             f"Read {FOCUS_ROOT}/agents/{agent_name}/HEARTBEAT.md and follow it.\n"
             f"You MUST start at Part 0 (Mode Selector). Do not skip ahead.\n"
+            f"Write your own diagnoses BEFORE reading other agents' posts.\n"
             f"{extra_discussion_instructions}"   # from the profile hook
         ),
         run_in_background=True,
@@ -134,19 +154,39 @@ for agent_name in non_admin_agents:
     )
 ```
 
-> **Model choice.** Haiku-class analysts have a documented "describe instead of
+> **Model choice.** Haiku-class agents have a documented "describe instead of
 > do" failure mode in this workflow: they write elaborate local memory files
-> claiming the work is done but never call the workshop API, leaving the queue
-> unrefilled. Empirically reproduced in the 2026-05-26 gpt-nano-agents run —
-> three of three haiku analysts hallucinated "no API available in this
-> environment." Always use **sonnet or opus** for analysts; reserve haiku for
-> deterministic mechanical work outside this loop.
+> claiming the work is done but never call the API, leaving the graph empty.
+> Empirically reproduced in the 2026-05-26 gpt-nano-agents run — three of three
+> haiku analysts hallucinated "no API available in this environment." Always
+> use **sonnet or opus**; reserve haiku for deterministic mechanical work
+> outside this loop.
 
-**`MODE=discussion` is mandatory.** Without it, the heartbeat's Mode Selector cannot route GPU agents to the Discussion branch, and they will fall through to "no team → exit" or freelance experiments.
+**`MODE=discussion` is mandatory.** Without it the Mode Selector cannot route
+agents to the Round 0 branch and they fall through to "no team → exit".
 
-**Expected duration: 3–8 minutes per agent.** All agents post one [DISCUSSION] thread and exit. If any agent runs longer than 15 minutes during discussion phase, something is wrong (likely an old heartbeat or the agent skipped Part 0) — investigate before proceeding.
+**Expected duration: 15–25 minutes.** Longer than v1's discussion phase, and
+that is the trade this system makes: it buys the relations that let a single
+result later close several ideas at once. If an agent runs past 40 minutes,
+something is wrong — check it before proceeding.
 
-## Step 4 — Form teams + seed queues
+**Do not leave the GPUs idle for the whole round.** As soon as the diagnosis
+layer exists (after step 2), the cheapest idea under each distinct diagnosis
+can be promoted to NOW and dispatched. The first batch is not trying to improve
+the metric; it is trying to find out which diagnosis is real.
+
+**Verify the graph exists before moving on:**
+
+```python
+g = requests.get(f"{API}/graphs/by-workshop/{WORKSHOP}", headers=HEADERS).json()
+diagnoses = [n for n in g["nodes"] if n["kind"] == "diagnosis"]
+ideas     = [n for n in g["nodes"] if n["kind"] == "idea"]
+assert len(diagnoses) >= 3, "Round 0 produced no diagnosis layer"
+assert len(ideas) >= 2 * len(diagnoses), "diagnoses with nothing to test them"
+assert any(n["tier"] == "NOW" for n in ideas), "nothing promoted to NOW"
+```
+
+## Step 4 — Form teams around the diagnoses
 
 Launch the monitor agent to read discussion posts and form teams.
 
@@ -174,7 +214,12 @@ teams  = roster.get("teams", {})
 assert len(teams) >= 2, "Teams not formed properly"
 ```
 
-→ PROFILE HOOK: `seeding_policy` (defines who seeds queues and how — orchestrator-seeded vs monitor-seeded, what to put in each team's queue)
+Each team owns one diagnosis node. That is the same thing a v1 team owned — a
+falsifiable hypothesis — except it now lives in the shared graph, so a result
+from another team can refute your diagnosis and you will be handed a ticket
+about it.
+
+→ PROFILE HOOK: `seeding_policy` (defines who seeds NOW and how — orchestrator-seeded vs monitor-seeded, which idea under each diagnosis goes first)
 
 ## Step 5 — Execution loop
 
@@ -188,6 +233,9 @@ while True:
     if pre_cycle_check():    # ← PROFILE HOOK
         break
 
+    # 5a2 — Clear the verdict worklist FIRST. While it is non-empty the graph
+    #       refuses new batches and every GPU is idle, so nothing else in this
+    #       cycle can make progress until it is empty. (Step 5a2 below)
     # 5b — Launch analysts in parallel (Step 5b below)
     # 5c — Launch GPU agents (Step 5c below)
     # 5d — Wait + log (Step 5d below)
@@ -203,6 +251,44 @@ while True:
 ### 5a. Pre-cycle check
 
 → PROFILE HOOK: `pre_cycle_check` (default: no-op returning False; biomlbench uses this for deadline checks and emergency submission)
+
+### 5a2. Clear the verdict worklist — BEFORE anything else
+
+```python
+g = requests.get(f"{API}/graphs/by-workshop/{WORKSHOP}", headers=HEADERS).json()
+GID = g["graph"]["id"]
+
+if g["graph"]["locked"]:
+    # Results have landed that the team has not yet ruled on. Launch the
+    # theorists and WAIT. Do not launch GPU agents — /batch will 423 and you
+    # will have burned an agent launch to learn what this flag already told you.
+    for t in [f"{PREFIX}_theorist1", f"{PREFIX}_theorist2"]:
+        Task(subagent_type="general-purpose", model="sonnet",
+             description=f"{t} clears verdicts",
+             prompt=(f"You are {t}.\nFOCUS_ROOT={FOCUS_ROOT}\nMODE=execute\n"
+                     f"Read {FOCUS_ROOT}/agents/{t}/HEARTBEAT.md and follow it.\n"
+                     f"Start at Part 0 (Mode Selector).\n"
+                     f"The graph is LOCKED. Clearing the open verdict tickets is "
+                     f"your only job this cycle; every GPU in the run is idle "
+                     f"until you finish.\n"
+                     f"When done: <promise>{t} cycle complete</promise>"))
+    # Wait for both, then re-read. If it is still locked after a theorist
+    # cycle, that is a real failure — read logs/raw/ for what they hit. Do NOT
+    # work around it by clearing tickets yourself; the orchestrator does not
+    # get to decide what a result means.
+```
+
+**This gate is the central mechanism of the system and the orchestrator's job
+is to respect it, not to route around it.** The lock exists because v1's worst
+failure was structural: a result would arrive that condemned four untested
+ideas, and nothing could reach into the queue and stop them before they ran.
+The measured cost is in `eval/replay/README.md` — most of the compute in
+team-labelled v1 runs went to the third-or-later consecutive failure within a
+team since its last success.
+
+If you find yourself wanting to skip the gate because GPUs are idle: idle GPUs
+are the point. They are idle for minutes, and the alternative is spending them
+on questions that were answered in the last cycle.
 
 ### 5b. Launch analysts IN PARALLEL
 
@@ -231,6 +317,24 @@ for analyst_name in analysts:
         ),
     )
 # Wait for all 3 to complete.
+
+# Then launch the theorists, who relate the new ideas and set NOW for the next
+# batch. Analysts first, theorists second: a theorist that runs before this
+# cycle's proposals exist has nothing to situate them against.
+for t in [f"{PREFIX}_theorist1", f"{PREFIX}_theorist2"]:
+    Task(
+        subagent_type="general-purpose",
+        model="sonnet",
+        description=f"{t} cycle",
+        prompt=(
+            f"You are {t}.\n"
+            f"FOCUS_ROOT={FOCUS_ROOT}\n"
+            f"MODE=execute\n"
+            f"Read {FOCUS_ROOT}/agents/{t}/HEARTBEAT.md and follow it.\n"
+            f"Start at Part 0 (Mode Selector).\n"
+            f"When done: <promise>{t} cycle complete</promise>"
+        ),
+    )
 ```
 
 → PROFILE HOOK: `analyst_prompt_extras` (extra env vars, deadline reminders, diversity rules — append to the prompt)
@@ -269,37 +373,47 @@ This is the SINGLE point at which the orchestrator writes to shared canonical pa
 
 ### 5f. Health check
 
-```python
-# Release stale claims (>30 min old, no result file)
-for team_name, team_info in teams.items():
-    q_raw = requests.get(f"{API}/workspaces/{team_info['workspace_id']}/files/queue.md",
-                         headers=HEADERS).json()
-    q_fm = parse_fm(q_raw)
-    for agent, claim in (q_fm.get("claims") or {}).items():
-        if not claim:
-            continue
-        claimed_at = datetime.fromisoformat(claim["claimed_at"]).replace(tzinfo=timezone.utc) \
-                     if "T" in claim.get("claimed_at", "") else None
-        if claimed_at and (datetime.now(timezone.utc) - claimed_at).total_seconds() / 60 > 30:
-            result = requests.get(
-                f"{API}/workspaces/{WS_ID}/files/results/{claim['exp_id']}.md",
-                headers=HEADERS)
-            if result.status_code == 404:
-                requests.patch(f"{API}/workspaces/{team_info['workspace_id']}/files/queue.md",
-                    headers=HEADERS,
-                    json={"frontmatter": {f"claims.{agent}": None}})
+There are no stale claims to sweep. `/batch` marks a node `running` inside the
+transaction that hands it out, so a claim cannot outlive the agent that took
+it. What replaces the sweep is the graph's own structural audit:
 
-# Warn on empty queues
-for team_name, team_info in teams.items():
-    q_fm = parse_fm(requests.get(f"{API}/workspaces/{team_info['workspace_id']}/files/queue.md",
-                                 headers=HEADERS).json())
-    if not (q_fm.get("pending") or []):
-        print(f"WARNING: {team_name} queue empty")
+```python
+audit = requests.get(f"{API}/graphs/{GID}/audit", headers=HEADERS).json()
+for f in audit["findings"]:
+    print(f["severity"], f["code"], f["message"], f["nodes"])
+
+# Nodes stuck in `running` with no result: the agent died mid-experiment.
+# Reset them to untested so they can be handed out again — this is the one
+# graph write the orchestrator makes, and it is bookkeeping, not judgement.
+g = requests.get(f"{API}/graphs/{GID}", headers=HEADERS, params={"status": "running"}).json()
+for n in g["nodes"]:
+    age_min = (datetime.now(timezone.utc)
+               - datetime.fromisoformat(n["updated_at"].replace("Z", "+00:00"))).total_seconds() / 60
+    if age_min > 30:
+        requests.patch(f"{API}/graphs/{GID}/nodes/{n['id']}", headers=HEADERS,
+                       json={"status": "untested",
+                             "reason": f"agent died mid-experiment ({age_min:.0f} min, no result)"})
+
+# NOW thin? Two different problems with two different owners — v1's single
+# "queue empty" warning could not tell them apart:
+now = [n for n in g["nodes"] if n["tier"] == "NOW" and n["status"] == "untested"]
+if len(now) < 2:
+    print("NOW is thin — do analysts need to propose, or does the theorist need to promote?")
 ```
 
 ### 5g. Stagnation check
 
 ```python
+# Two signals now. The graph's own state is the better one: a run is stuck
+# when every diagnosis has been exhausted or refuted, which is a statement
+# about the team's understanding rather than about its recent luck.
+g = requests.get(f"{API}/graphs/{GID}", headers=HEADERS, params={"kind": "diagnosis"}).json()
+alive = [n for n in g["nodes"] if n["status"] == "active"]
+if not alive:
+    # Nothing the team believes is limiting the metric is still standing.
+    # This is the real trigger for re-running Round 0 — not a DISCARD streak.
+    stagnation_response(cycle_count)   # ← PROFILE HOOK
+
 # Count KEEPs in the last N experiments
 log_path = FOCUS_ROOT / "logs" / "experiments.jsonl"
 if log_path.exists():
@@ -335,7 +449,10 @@ If True, fall through to Step 6. Otherwise continue from Step 5a.
 
 - Run training experiments yourself (agents do this — no `python train.py`)
 - Modify `train.py`, `submission.csv`, or any code in agent workspaces
-- Claim experiments from any queue
+- Claim experiments from the graph, or answer a verdict ticket. Deciding what a
+  result means for the other ideas is the whole job of the agents; an
+  orchestrator that rules on tickets to unblock itself has removed the only
+  mechanism that stops wasted compute.
 - Write result files
 - Overwrite `champion.md` except via the `champion_promotion` hook
 - Step in because an agent is slow or failed — release the claim, relaunch

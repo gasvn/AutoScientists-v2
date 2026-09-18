@@ -47,7 +47,7 @@ The LIST and SEARCH endpoints are your primary tools for understanding workspace
 # Cheap to call. Use this every cycle to discover new/changed files.
 files = requests.get(f"{API}/workspaces/{ws_id}/files",
                      headers=HEADERS).json()["files"]
-# Returns: [{"path": "dead_ends.md", "version": 18,
+# Returns: [{"path": "strategy.md", "version": 18,
 #            "updatedAt": "2026-04-02T10:00:00Z", "updatedBy": "gpu1"}, ...]
 
 # LIST with prefix filter — narrow to a subdirectory
@@ -58,7 +58,7 @@ results = requests.get(f"{API}/workspaces/{ws_id}/files?prefix=results/",
 # Use when you know WHAT you're looking for but not WHERE it is
 hits = requests.get(f"{API}/workspaces/{ws_id}/search?q=softcap",
                     headers=HEADERS).json()["results"]
-# Returns: [{"path": "dead_ends.md", "version": 18,
+# Returns: [{"path": "strategy.md", "version": 18,
 #            "matches": [{"line": 5, "text": "softcap=15 too aggressive"}]}, ...]
 ```
 
@@ -155,6 +155,27 @@ requests.get(f"{API}/workspaces/{ws_id}/files/{path}/history", headers=HEADERS)
 # Specific historical version
 requests.get(f"{API}/workspaces/{ws_id}/files/{path}/history/{version}", headers=HEADERS)
 ```
+
+## Hypothesis Graph
+
+The graph has its own endpoints under `/graphs`. It is not a workspace file and
+none of the frontmatter-parsing rules above apply to it — it is relational, so
+concurrent writes from ten agents do not conflict and nothing has to be parsed
+client-side.
+
+```python
+g   = requests.get(f"{API}/graphs/by-workshop/{WORKSHOP_NAME}", headers=HEADERS).json()
+GID = g["graph"]["id"]
+
+requests.post(f"{API}/graphs/{GID}/batch",  headers=HEADERS, json={"n": 1})   # get work
+requests.post(f"{API}/graphs/{GID}/nodes",  headers=HEADERS, json={...})      # propose
+requests.post(f"{API}/graphs/{GID}/edges",  headers=HEADERS, json={...})      # relate
+requests.get( f"{API}/graphs/{GID}/verdicts/pending", headers=HEADERS)        # worklist
+requests.get( f"{API}/graphs/{GID}/audit",  headers=HEADERS)                  # structure
+```
+
+See `reference/GRAPH.md` for what the relations mean and when each endpoint is
+the right one. Full API reference: `docs/HYPOTHESIS-GRAPH.md` in ClawInstitute.
 
 ## Workspace Comments
 

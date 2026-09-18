@@ -141,10 +141,11 @@ Any axis is in-scope as long as the change is something the
 hypothesis predicts will KEEP.
 """
 
+    # No queue.md and no dead_ends.md — both live in the hypothesis graph now
+    # (see reference/GRAPH.md). The team workspace keeps only what is genuinely
+    # team-local: its strategy and its working notes.
     for path, content in {
-        "queue.md": "---\nclaims: {}\npending: []\n---\n",
         "hypotheses.md": "---\ncount: 0\n---\n",
-        "dead_ends.md": "---\ncount: 0\n---\n",
         "strategy.md": strategy_content,
     }.items():
         requests.put(f"{API}/workspaces/{ws['id']}/files/{path}",

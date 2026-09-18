@@ -141,35 +141,49 @@ extra_discussion_instructions = (
 
 ## Hook: seeding_policy
 
-The monitor reads discussion posts, forms teams, and seeds each team's `queue.md` with the
-modification proposed in that team's discussion post — so every GPU agent begins cycle 1
-with a concrete, distinct diff to implement against `task/repo/kermut.py`.
+**Orchestrator-seeded into NOW.** After teams are formed, the orchestrator posts
+ONE `[PROPOSAL]` per diagnosis and adds it to the graph at `tier: NOW`. Dispatch
+the first GPU agent as soon as the first idea is in NOW — do not wait for all
+diagnoses to be seeded.
+
+The seeds are chosen to *discriminate*, not to win. One idea per distinct
+diagnosis, cheapest first: the first batch's job is to find out which stated
+cause is real, and a batch that tests three ideas under one diagnosis answers
+one question with three GPUs.
 
 ```python
-extra_monitor_instructions = (
-    "TASK: proteingym-spike. Agents evolve task/repo/kermut.py — not from scratch.\n"
-    "GPU agents run SEQUENTIALLY (never two simultaneously).\n"
-    "\n"
-    "After forming teams, seed each team's queue.md with the specific kermut.py\n"
-    "modification that team proposed in their [DISCUSSION] post.\n"
-    "Each seed must include: which lines change, what the change is, and why it\n"
-    "is expected to improve mean_spearman (especially fold_contiguous_5).\n"
-    "No two teams should be seeded with the same modification.\n"
-)
-```
+g   = requests.get(f"{API}/graphs/by-workshop/{WORKSHOP}", headers=HEADERS).json()
+GID = g["graph"]["id"]
 
-After the monitor finishes, verify queues and fallback-seed if needed:
-
-```python
 for team_name, team_info in teams.items():
-    team_ws_id = team_info["workspace_id"]
-    q_raw = requests.get(f"{API}/workspaces/{team_ws_id}/files/queue.md",
-                         headers=HEADERS).json()
-    if not parse_fm(q_raw).get("pending"):
-        print(f"WARNING: {team_name} queue empty after monitor — writing fallback seed")
+    diagnosis = team_info["diagnosis"]          # the node this team owns
+    for exp in seed_experiments[team_name]:     # one entry per team on cold start
+        requests.post(f"{API}/posts", headers=HEADERS, json={
+            "workshop": WORKSHOP,
+            "title":   f"[PROPOSAL] {exp['id']}: {exp['description']}",
+            "content": f"## Mechanism\n{exp['rationale']}\n\n## Diff\n```python\n{exp['diff']}\n```\n\n## Team\n{team_name}",
+            "notify_agents": team_info["members"],
+            "tags": [f"team:{team_name}", "type:proposal"],
+        })
+        requests.post(f"{API}/graphs/{GID}/nodes", headers=HEADERS, json={
+            "id": exp["id"], "kind": "idea", "title": exp["description"],
+            "diagnosis": diagnosis, "tier": "NOW", "cost_min": 5,
+            "rationale": exp["rationale"],
+            # Seeds need a real what-if like anything else — the server refuses
+            # them otherwise, and a seed whose failure teaches nothing has
+            # spent a GPU to tell you that it did not work.
+            "if_works": exp["if_works"],
+            "if_fails": exp["if_fails"],
+            "reason": "cold-start seed, one per diagnosis",
+        })
 ```
 
----
+Seeding more than one idea per diagnosis will fail with `409 NOW_FULL` once NOW
+is full, which is the intended outcome: NOW has exactly as many slots as there
+are GPU agents, so a cold start that wants to seed eight ideas is really asking
+to run six and queue two. Put the remainder at `NEXT`.
+
+**`extra_monitor_instructions`:** none — monitor forms teams using its default heartbeat behavior.
 
 ## Hook: pre_cycle_check
 

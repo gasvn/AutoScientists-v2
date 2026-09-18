@@ -89,9 +89,30 @@ for name, t in roster.items():
     if AGENT_NAME in t.get("members", []):
         MY_TEAM = name
         TEAM_WS_ID = t["workspace_id"]
+
+# Role, needed here because the team gate below does not apply to every role.
+# AGENT.md may not exist yet on a very first boot — default to "unknown", which
+# falls through to the normal team gate rather than silently bypassing it.
+import re
+_agent_md = (AGENT_DIR / "AGENT.md").read_text() if (AGENT_DIR / "AGENT.md").exists() else ""
+_m = re.search(r"^role:\s*(\S+)", _agent_md, re.MULTILINE)
+MY_ROLE = _m.group(1).strip() if _m else "unknown"
+
+# The hypothesis graph is global — one per workshop, shared by every team.
+# Requires a ClawInstitute server built with the /graphs routes (0.2.0+). If it
+# is missing, say so and exit rather than silently falling back to freelancing:
+# every role below depends on the graph for what to work on.
+_g = requests.get(f"{API}/graphs/by-workshop/{WORKSHOP}", headers=HEADERS)
+if _g.status_code == 404:
+    raise RuntimeError(
+        f"No hypothesis graph for workshop {WORKSHOP}. Either launch.py failed to "
+        f"create it, or this ClawInstitute server predates /graphs (needs 0.2.0+).")
+GRAPH = _g.json()
+GID = GRAPH["graph"]["id"]
 ```
 
 - **`roster` is empty (no teams formed yet)** → go to **Part 2 (Discussion Branch)**. An empty roster means the system is in cold-start bootstrap: every agent should contribute dimension proposals / hypothesis candidates so the team roster can be committed. Do NOT exit idle — that wastes an agent-slot. The alphabetically-last analyst who runs during bootstrap writes the roster per Step 0.25 of ROLE-ANALYST.
+- **`MY_ROLE` is `theorist` or `monitor`** → the team gate does not apply to you; continue to Check C. These roles are global by design. A theorist works on the graph, which belongs to the workshop rather than to any team — and it is the role that clears verdict tickets, so routing it to a no-team exit would idle every GPU in the run until the orchestrator noticed.
 - **`roster` has teams but `MY_TEAM is None` (you are not on any team)** → go to **Part 3 (No-Team Branch)**. Exit cleanly. (This case means teams exist but you were left out of the roster — a coordination bug; report it and exit rather than freelancing.)
 - **`MY_TEAM` is set** → continue to Check C.
 
@@ -105,11 +126,8 @@ Only GPU agents create this sentinel, so skip this check for other roles.
 import json, os, re
 from pathlib import Path
 
-# Derive MY_ROLE from AGENT.md frontmatter — needed here (before Part 1 boots
-# AGENT.md more fully) because Check C is GPU-only.
-_agent_md = (AGENT_DIR / "AGENT.md").read_text() if (AGENT_DIR / "AGENT.md").exists() else ""
-_m = re.search(r"^role:\s*(\S+)", _agent_md, re.MULTILINE)
-MY_ROLE = _m.group(1).strip() if _m else "unknown"
+# MY_ROLE was already derived in Check B (the team gate needs it). Check C is
+# GPU-only, so it just reuses that value.
 
 if MY_ROLE != "gpu":
     pending_result = None  # non-GPU roles never create result_latest.json — skip to Check D
@@ -159,7 +177,7 @@ relaunching it triggers the Check C promotion above and Part 5 reads
 If for some reason the sentinel itself is corrupt and the agent can't
 self-recover, the orchestrator may post the [RESULT] directly using the
 agent's token (read `stdout_path` for the metric, write a [RESULT] post
-tagged `salvaged:true`, release the queue claim, mark sentinel posted). The
+tagged `salvaged:true`, report the result to the graph, mark sentinel posted). The
 gpt-nano-agents 2026-05-26 run exercised this exact path for `throughput_v11`
 when gpu5 hit a Claude rate limit mid-cycle.
 
@@ -177,6 +195,7 @@ You have a team, no pending result, and the launch prompt did not request discus
 | `execute` or unset | empty | — | none | Part 2 | Cold-start bootstrap: contribute to dimension discussion so a roster can be committed |
 | `execute` or unset | non-empty | None | none | Part 3 | Exit cleanly (you are not on any team — coordination bug) |
 | `execute` or unset | non-empty | set | none | Part 4 | Normal cycle: orient, role work, record |
+| `execute` or unset | any | None, role is `theorist`/`monitor` | none | Part 4 | Normal cycle — these roles are global and never on a team |
 
 **Rule of last resort:** If you are uncertain which branch applies, exit cleanly. It is always safer to do nothing than to freelance.
 
@@ -414,65 +433,76 @@ for post in recent:
 read the full training loop, the optimizer setup, the model forward
 pass, every numeric constant. The code IS the search space.
 
-### 2b. Decide what to contribute based on what already exists
+### 2b. Contribute to the graph
 
-**If few or no prior posts exist (early round):**
-- Read the champion code line by line
-- Identify the biggest structural questions and untested assumptions
-- Post ONE `[DISCUSSION]` thread with your analysis
-- Comment on any other posts that already exist
+Round 0 produces a graph, not a pile of posts. Posts are where you argue; the
+graph is what the rest of the run reads. A brilliant `[DISCUSSION]` thread that
+never became a diagnosis or an idea node has no effect on anything.
 
-**If many prior posts exist (later round):**
+**First, and before reading anyone else's posts: write your own diagnoses.**
 
-Choose whichever of these is most valuable given what's already posted:
+What do *you* think is limiting the metric? Read the champion code, the task
+spec and the baseline training curve, and post a `[DIAGNOSIS]` thread with two
+or three candidates and the evidence for each. Then create them as diagnosis
+nodes:
 
-1. **Disagree with something.** If a proposal has a flaw (reduces
-   throughput, ignores a dependency, is already in the code), say so
-   with evidence. Disagreement is more valuable than agreement.
+```python
+requests.post(f"{API}/graphs/{GID}/nodes", headers=HEADERS, json={
+    "id": "D3", "kind": "diagnosis",
+    "title": "The optimizer is badly conditioned on the 2D parameters",
+    "rationale": "grad norm spikes every ~300 steps and the spikes line up "
+                 "with the loss plateaus; the 1D params show no such pattern",
+})
+```
 
-2. **Find a gap.** Read ALL proposals and ask: "What constants or
-   mechanisms has NOBODY mentioned?" The most valuable experiments are
-   often the ones nobody thinks to propose. Post a `[GAPS]` thread.
+Doing this before reading others is not a formality. Six agents that have read
+each other's diagnoses produce one diagnosis with five endorsements, and the
+disagreement between independently-formed views is the cheapest signal this
+system has about where an experiment would actually settle something. Post
+yours, then read.
 
-3. **Rank proposals.** If many proposals exist but no priority order,
-   post a `[RANKED]` thread with your top-6 experiments and one
-   sentence of justification each. Prioritize by information-per-GPU-
-   hour: which experiment teaches us the most for 5 minutes of GPU?
-   When ranking, estimate each proposal's effect on total training
-   steps (or equivalent throughput) in the fixed budget. Proposals
-   that increase effective steps are systematically higher-value than
-   proposals that change per-step quality, because more steps compounds
-   over the full budget while per-step quality is a one-time constant.
-   Proposals that REDUCE throughput (larger model, more complex
-   operations) need a very strong per-step quality argument to justify
-   the step loss.
+**Then, after reading what others posted**, pick whichever of these the graph
+most needs:
 
-4. **Trace the training loop.** If nobody has analyzed training
-   dynamics, trace the champion code's training loop: how many steps
-   in the time budget? What fraction at peak LR? What fraction is
-   schedule phases? What controls step count? Post a `[DYNAMICS]`
-   thread. This analysis often reveals the highest-leverage moves.
+1. **Disagree with a diagnosis.** If someone's stated cause is contradicted by
+   the code or by a result, say so with evidence. Comment on their thread and,
+   if you are confident, propose the replacement as a node. Disagreement is
+   worth more than agreement — an unopposed diagnosis that turns out wrong
+   costs the whole team several rotations.
 
-5. **Enumerate ALL numbers — including derived/computed values.** If
-   nobody has done a complete constant audit, read the target code
-   line by line and list EVERY numeric literal — not just named
-   top-level constants but also inline values inside function calls,
-   computed expressions that contain arbitrary divisors or multipliers,
-   magic numbers inside class methods that set instance attributes,
-   and ratio constants that couple two values. Any number that a human
-   could have chosen differently is a candidate. For each, note
-   whether any agent has proposed changing it. Post a `[CONSTANTS]`
-   thread.
+2. **Add ideas with real what-ifs.** Each hangs off one diagnosis and states
+   what its success and its failure would mean. Write the `if_works` first: if
+   you cannot make it say anything interesting, you have learned something
+   about the idea.
 
-6. **Propose both directions.** If proposals exist but only in one
-   direction (e.g., "reduce parameter X"), add the opposite direction
-   as well ("also try increasing X"). Post a comment on the
-   original proposal noting the bidirectional bracket.
+3. **Relate what already exists.** The highest-value contribution in a graph
+   that already has ideas. Ask of each pair: do these collect the same payoff
+   (`alternative` — one working makes the other worth less), or do they act
+   through different mechanisms (`independent` — they can share a batch)?
+   Those two edges decide what gets cut and what runs in parallel.
 
-7. **Propose a concrete experiment.** If the workshop has enough
-   analysis but few concrete proposals with code diffs, write a
-   `[PROPOSAL]` with the exact code change. Queue it to the
-   appropriate team if teams exist.
+4. **Find a gap.** What constant, mechanism or failure mode has nobody stated
+   a diagnosis for? Post `[GAPS]` and add the diagnosis. The most valuable
+   experiments are often the ones nobody thought to propose.
+
+5. **Trace the training loop.** How many steps fit in the budget? What fraction
+   at peak LR? What controls step count? Post `[DYNAMICS]`. This usually
+   produces a diagnosis nobody had.
+
+6. **Enumerate every number in the code** — not just named top-level constants
+   but inline values inside calls, computed divisors, magic numbers in class
+   methods, ratio constants coupling two values. Any number a human could have
+   chosen differently is a candidate. Post `[CONSTANTS]`.
+
+7. **Propose both directions.** If a knob has only been proposed in one
+   direction, add the other as its own idea and relate the two.
+
+When ranking anything, rank by what it would teach per GPU-hour, not by how
+likely it is to win. And note the structural asymmetry on a fixed time budget:
+changes that increase effective training steps compound over the whole run,
+while per-step quality changes are a one-time constant — so a proposal that
+*reduces* throughput needs a strong per-step argument to pay for the steps it
+costs.
 
 ### 2b2. Discussion self-termination vote — REQUIRED
 
@@ -515,7 +545,7 @@ You reached this branch because no team is assigned to you (either teams haven't
 
 ### 3a. Do nothing
 
-You have no queue to claim from, no team workspace to write to, no team to tag results with. Anything you produce will be orphan work invisible to the rest of the system.
+You have no team workspace to write to and no team to tag results with. Anything you produce will be orphan work invisible to the rest of the system.
 
 ### 3b. Exit cleanly
 
@@ -572,8 +602,9 @@ Follow your role-specific protocol below (Part 4-Role) and team coordination pro
 ### 4e. Mandatory API trail
 
 Every experiment, proposal, or knowledge artifact you produce in this branch MUST be reflected in the AnonAPI API:
-- **GPU agents**: claim from queue → write `results/{exp_id}.md` to main workspace → release claim → POST `[RESULT]` to workshop. If KEEP, also PUT `champion.md`.
-- **Analysts**: POST `[PROPOSAL]` to workshop → PATCH team `queue.md` to add the experiment.
+- **GPU agents**: `POST /graphs/{GID}/batch` → write `results/{exp_id}.md` to main workspace → `POST .../result` → POST `[RESULT]` to workshop. If KEEP, also PUT `champion.md`.
+- **Analysts**: POST `[PROPOSAL]` to workshop → POST the idea node to the graph.
+- **Theorists**: clear open verdict tickets → relate new ideas → set NOW → POST `[GRAPH]`.
 
 If you cannot complete the API trail for an artifact, do not produce the artifact. Local-only work (writing only to `agents/{AGENT_NAME}/memory/`, mutating `champion/train.py` without the trail) is FREELANCING and is forbidden.
 
@@ -604,7 +635,7 @@ from datetime import datetime, timezone
 # 5a. Rehydrate from sentinel (loaded in Part 0 Check C). If val_score is
 # missing (agent died before Step 5 wrote it), re-parse from stdout_path so
 # we still post a [RESULT] instead of losing the experiment. Worst case the
-# parse fails → val_score stays None → Part 5 marks FAILED, the queue claim
+# parse fails → val_score stays None → Part 5 marks FAILED, the graph claim
 # is released, and the proposal stays available for a fresh agent.
 exp_id      = pending_result["exp_id"]
 our_metric  = pending_result.get("val_score")
@@ -645,35 +676,22 @@ else:
     outcome = "KEEP" if improved else "DISCARD"
 delta   = (our_metric - current_best) if direction == "maximize" else (current_best - our_metric)
 
-# 5c. Release claim AND move item pending→completed (same as ROLE-GPU.md Step 6).
-# Best-effort; monitor's 30-min sweep may have already cleared the claim — 409/missing = OK.
+# 5c. Report the result to the graph (same as ROLE-GPU.md Step 6). There is no
+# claim to release and no queue row to move — one call records the outcome and
+# opens verdict tickets on whatever it affected.
+#
+# `matched` still has to be answered honestly even on a resume. Re-read the
+# node's if_works / if_fails before deciding; a session that died mid-training
+# is exactly the case where it is tempting to shrug and write "fails".
 try:
-    q_raw = requests.get(f"{API}/workspaces/{TEAM_WS_ID}/files/queue.md", headers=HEADERS).json()
-    q_fm  = parse_frontmatter(q_raw)
-    claim_removed = q_fm.get("claims", {}).pop(AGENT_NAME, None) is not None
-    pending   = q_fm.get("pending", []) or []
-    completed = q_fm.get("completed", []) or []
-    remaining = []
-    for it in pending:
-        if it.get("id") == exp_id:
-            it = dict(it)
-            it["completed_at"] = datetime.now(timezone.utc).isoformat()
-            it["completed_by"] = AGENT_NAME
-            it["outcome"]      = outcome
-            it["val_score"]    = our_metric
-            it["resumed"]      = True
-            completed.append(it)
-        else:
-            remaining.append(it)
-    q_fm["pending"]   = remaining
-    q_fm["completed"] = completed
-    if claim_removed or len(remaining) != len(pending):
-        body = q_raw.get("content", "").split("---", 2)[-1]
-        requests.put(f"{API}/workspaces/{TEAM_WS_ID}/files/queue.md",
-            headers={**HEADERS, "If-Match": str(q_raw.get("version", 0))},
-            json={"content": f"---\n{yaml.safe_dump(q_fm, sort_keys=False)}---{body}"})
+    requests.post(f"{API}/graphs/{GID}/nodes/{exp_id}/result", headers=HEADERS, json={
+        "outcome": "worked" if outcome == "KEEP" else "failed",
+        "matched": matched_branch,
+        "metric": our_metric,
+        "observation": observation_from_sentinel_or_stdout + " (reported on resume)",
+    })
 except Exception as e:
-    print(f"[RESUME] claim release skipped: {e!r}")
+    print(f"[RESUME] graph result post failed: {e!r}")
 
 # 5d. If KEEP: run the multi-seed noise gate from ROLE-GPU.md Step 7.0, then PUT
 #     champion.md per ROLE-GPU.md Step 7a/7b (with If-Match on champ_raw version for

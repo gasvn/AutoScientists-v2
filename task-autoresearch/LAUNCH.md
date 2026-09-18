@@ -44,12 +44,12 @@ If you do run it standalone, cap discussion at ONE round of posts (3–8 minutes
 
 Rules:
 1. Skip extended discussion before any training.
-2. Seed-queue minimum, not maximum (one proposal per team).
-3. Dispatch GPU #1 the moment the first queue.md has ≥1 pending experiment.
+2. Seed minimum, not maximum — one idea per diagnosis, chosen to tell them apart.
+3. Dispatch GPU #1 the moment the first idea is in NOW.
 4. 2× H100 GPUs available — use `CUDA_VISIBLE_DEVICES=0` and `=1`.
 5. Do NOT block on perfect discussion before training starts. Get GPUs busy first.
 
-If you find yourself ≥10 minutes in with zero GPU agents dispatched, cut whatever step you are on and dispatch a GPU immediately with the best proposal currently in any team's queue (or "rerun champion train.py unchanged for sanity").
+If you find yourself ≥10 minutes in with zero GPU agents dispatched, cut whatever step you are on and dispatch a GPU immediately with whatever `POST /graphs/{GID}/batch` returns (or "rerun champion train.py unchanged for sanity" if NOW is empty).
 
 **`extra_discussion_instructions` (empty if discussion is skipped):** no additions beyond the base prompt.
 
@@ -57,12 +57,23 @@ If you find yourself ≥10 minutes in with zero GPU agents dispatched, cut whate
 
 ## Hook: seeding_policy
 
-**Orchestrator-seeded.** After teams are formed, the orchestrator itself posts ONE `[PROPOSAL]` per team and writes it into the team's `queue.md`. Dispatch the first GPU agent as soon as the first team's queue has ≥1 pending experiment — do not wait for all teams to be seeded.
+**Orchestrator-seeded into NOW.** After teams are formed, the orchestrator posts
+ONE `[PROPOSAL]` per diagnosis and adds it to the graph at `tier: NOW`. Dispatch
+the first GPU agent as soon as the first idea is in NOW — do not wait for all
+diagnoses to be seeded.
+
+The seeds are chosen to *discriminate*, not to win. One idea per distinct
+diagnosis, cheapest first: the first batch's job is to find out which stated
+cause is real, and a batch that tests three ideas under one diagnosis answers
+one question with three GPUs.
 
 ```python
+g   = requests.get(f"{API}/graphs/by-workshop/{WORKSHOP}", headers=HEADERS).json()
+GID = g["graph"]["id"]
+
 for team_name, team_info in teams.items():
-    team_ws_id = team_info["workspace_id"]
-    for exp in seed_experiments[team_name]:    # one entry per team on cold start
+    diagnosis = team_info["diagnosis"]          # the node this team owns
+    for exp in seed_experiments[team_name]:     # one entry per team on cold start
         requests.post(f"{API}/posts", headers=HEADERS, json={
             "workshop": WORKSHOP,
             "title":   f"[PROPOSAL] {exp['id']}: {exp['description']}",
@@ -70,22 +81,25 @@ for team_name, team_info in teams.items():
             "notify_agents": team_info["members"],
             "tags": [f"team:{team_name}", "type:proposal"],
         })
-
-    queue_content = f"""---
-claims: {{}}
-pending:
-{chr(10).join(f'  - id: {e["id"]}' + chr(10) + f'    description: "{e["description"]}"' + chr(10) + f'    priority: high' for e in seed_experiments[team_name])}
----
-
-# Experiment Queue
-"""
-    requests.put(f"{API}/workspaces/{team_ws_id}/files/queue.md",
-                 headers=HEADERS, json={"content": queue_content})
+        requests.post(f"{API}/graphs/{GID}/nodes", headers=HEADERS, json={
+            "id": exp["id"], "kind": "idea", "title": exp["description"],
+            "diagnosis": diagnosis, "tier": "NOW", "cost_min": 5,
+            "rationale": exp["rationale"],
+            # Seeds need a real what-if like anything else — the server refuses
+            # them otherwise, and a seed whose failure teaches nothing has
+            # spent a GPU to tell you that it did not work.
+            "if_works": exp["if_works"],
+            "if_fails": exp["if_fails"],
+            "reason": "cold-start seed, one per diagnosis",
+        })
 ```
 
-**`extra_monitor_instructions`:** none — monitor forms teams using its default heartbeat behavior.
+Seeding more than one idea per diagnosis will fail with `409 NOW_FULL` once NOW
+is full, which is the intended outcome: NOW has exactly as many slots as there
+are GPU agents, so a cold start that wants to seed eight ideas is really asking
+to run six and queue two. Put the remainder at `NEXT`.
 
----
+**`extra_monitor_instructions`:** none — monitor forms teams using its default heartbeat behavior.
 
 ## Hook: pre_cycle_check
 
@@ -116,7 +130,7 @@ For each GPU agent, launch in its own message and wait before launching the next
 gpu_agents = [f"{PREFIX}_gpu{i}" for i in range(1, 7)]
 
 # Simple sequential model: alternate GPUs, wait between dispatches.
-# On cold start, dispatch GPU #1 as soon as the first queue is seeded (don't wait
+# On cold start, dispatch GPU #1 as soon as the first idea is in NOW (don't wait
 # for analysts to finish their cycle).
 
 for i, agent_name in enumerate(gpu_agents):
@@ -177,7 +191,7 @@ if outcome == "KEEP" and abs(delta) > 0.001:
             "content": f"Auto-bracketing from big win {exp_id} (delta={delta}).",
             "tags":    ["type:proposal", "auto:bracket", f"team:{team_name}"],
         })
-        # Also add to the relevant team's queue.md at high priority.
+        # Also add it to the graph under the relevant diagnosis at tier NOW.
 ```
 
 The orchestrator generates these — no analyst action needed.
@@ -251,7 +265,7 @@ def meta_improve(cycle_count):
         pattern = "high_duplicates"
         block = (
             "\n### Step 3b: Cross-Team Deduplication (AUTO-ADDED)\n"
-            "Before adding any experiment to the queue, check ALL teams' queue.md files\n"
+            "Before adding any experiment, search the graph — GET /graphs/{GID}/search\n"
             "and dead_ends.md for semantic overlap. If a similar mechanism exists, skip it.\n"
         )
         content = role_analyst.read_text()
@@ -265,7 +279,7 @@ def meta_improve(cycle_count):
         block = (
             "\n### Step 0.5: Activation Guardrail (AUTO-ADDED)\n"
             "Verify these files exist before starting work. If any are missing, exit.\n"
-            "- workspace champion.md\n- team queue.md\n- teams/roster.md\n"
+            "- workspace champion.md\n- the hypothesis graph\n- teams/roster.md\n"
         )
         content = role_analyst.read_text()
         if "Step 0.5" not in content:

@@ -567,6 +567,13 @@ AGENTS = {
     f"{PREFIX}_analyst1": ("Analyst 1 — researches mechanisms, proposes experiments",        "analyst", "server1", -1),
     f"{PREFIX}_analyst2": ("Analyst 2 — researches mechanisms, proposes experiments",        "analyst", "server2", -1),
     f"{PREFIX}_analyst3": ("Analyst 3 — researches mechanisms, proposes experiments",        "analyst", "server3", -1),
+    # Theorists own the hypothesis graph: they digest every result into verdicts
+    # on the ideas it affected, relate new ideas to old ones, and set the NOW
+    # tier. Two of them, so a stuck or slow one cannot block the whole run —
+    # the graph stays locked for new batches while verdicts are open, which
+    # makes this the one role where a single point of failure idles every GPU.
+    f"{PREFIX}_theorist1": ("Theorist 1 — maintains the hypothesis graph, rules on results",  "theorist", "server1", -1),
+    f"{PREFIX}_theorist2": ("Theorist 2 — maintains the hypothesis graph, rules on results",  "theorist", "server2", -1),
 }
 
 NOW = datetime.now(timezone.utc).isoformat()
@@ -648,6 +655,7 @@ last_val_bpb: null
         "gpu": "ROLE-GPU.md",
         "analyst": "ROLE-ANALYST.md",
         "monitor": "ROLE-MONITOR.md",
+        "theorist": "ROLE-THEORIST.md",
     }
     role_src = system_dir / role_file_map.get(role, "ROLE-GPU.md")
     role_content = role_src.read_text() if role_src.exists() else ""
@@ -862,6 +870,27 @@ phase: planning
 
 Teams formed during Phase 2 discussion.
 """)
+
+    # Create the hypothesis graph for this workshop. NOW holds exactly as many
+    # ideas as there are GPU agents: the tier IS the parallel capacity, which is
+    # what makes a promotion cost a demotion instead of being free.
+    n_gpu = sum(1 for (_d, role, _s, _g) in AGENTS.values() if role == "gpu")
+    try:
+        gr = requests.post(f"{API}/graphs", headers=HEADERS, json={
+            "workshop": WORKSHOP_NAME,
+            "title": f"{task_name} — hypothesis graph",
+            "now_slots": n_gpu,
+        })
+        if gr.status_code == 201:
+            print(f"  Created hypothesis graph ({n_gpu} NOW slots): {gr.json()['id']}")
+        elif gr.status_code == 409:
+            print(f"  Hypothesis graph already exists for {WORKSHOP_NAME}")
+        else:
+            print(f"  WARNING: could not create hypothesis graph "
+                  f"(HTTP {gr.status_code}) — is the ClawInstitute server 0.2.0 or newer? "
+                  f"Agents will fail at POST /graphs/.../batch without it.")
+    except Exception as e:
+        print(f"  WARNING: could not create hypothesis graph: {e!r}")
 
     for name, (desc, role, server, gpu) in AGENTS.items():
         put_file(ws_id, f"agents/{name}.md",

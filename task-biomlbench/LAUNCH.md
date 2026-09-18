@@ -246,54 +246,49 @@ extra_discussion_instructions = (
 
 ## Hook: seeding_policy
 
-**Monitor-seeded with diversity instructions.** The monitor agent reads all `[DISCUSSION]` posts, forms teams, and seeds each team's `queue.md` with a **distinct starting approach** — so GPU agents have differentiated work on cycle 1 rather than converging on the same baseline. The orchestrator then *verifies* every queue has a seed and writes a fallback if any team was missed.
+**Orchestrator-seeded into NOW.** After teams are formed, the orchestrator posts
+ONE `[PROPOSAL]` per diagnosis and adds it to the graph at `tier: NOW`. Dispatch
+the first GPU agent as soon as the first idea is in NOW — do not wait for all
+diagnoses to be seeded.
 
-**`extra_monitor_instructions`:**
-
-```python
-extra_monitor_instructions = (
-    f"GPU_AVAILABLE={GPU_AVAILABLE}\n"
-    f"IS_CPU_ONLY={IS_CPU_ONLY}\n"
-    f"\n"
-    f"DIVERSITY INSTRUCTION: After forming teams, seed each team's queue.md with a\n"
-    f"DIFFERENT starting experiment. Read all [DISCUSSION] posts to identify distinct\n"
-    f"approaches, then assign one per team such that no two teams start from the same\n"
-    f"model family or featurisation strategy.\n"
-    f"\n"
-    f"Rules for seeding:\n"
-    f"  - Each team gets exactly one seed experiment, priority: high.\n"
-    f"  - No two teams should share the same axis (model family / approach).\n"
-    f"  - Prefer approaches explicitly proposed in [DISCUSSION] posts.\n"
-    f"  - CRITICAL: Exactly ONE team gets the classical ML baseline (e.g. RDKit+XGBoost).\n"
-    f"    All other teams MUST be seeded with qualitatively different paradigms.\n"
-    f"    If GPU_AVAILABLE={GPU_AVAILABLE}, at least half of non-baseline teams should\n"
-    f"    be seeded with GPU-native methods (GNNs, transformers, pretrained embeddings).\n"
-    f"  - Order: give the simplest/fastest approach to the team most likely to produce\n"
-    f"    a submission.csv quickly (ensures a fallback exists early).\n"
-    f"  - Include in each queue entry: axis, a self-contained diff describing exactly\n"
-    f"    what to implement, and a note that the team owns this approach and should\n"
-    f"    iterate within this paradigm before proposing a switch.\n"
-    f"  - Also POST a [PROPOSAL] to the workshop for each seed so all agents can see\n"
-    f"    the full diversity plan.\n"
-    f"  - After seeding, write {{FOCUS_ROOT}}/logs/approach_registry.json with the\n"
-    f"    mapping {{\"cycle\": 0, \"taken\": [list of approach names assigned]}} so the\n"
-    f"    orchestrator can show agents which paradigms are already covered."
-)
-```
-
-After the monitor finishes, verify and fallback-seed:
+The seeds are chosen to *discriminate*, not to win. One idea per distinct
+diagnosis, cheapest first: the first batch's job is to find out which stated
+cause is real, and a batch that tests three ideas under one diagnosis answers
+one question with three GPUs.
 
 ```python
+g   = requests.get(f"{API}/graphs/by-workshop/{WORKSHOP}", headers=HEADERS).json()
+GID = g["graph"]["id"]
+
 for team_name, team_info in teams.items():
-    team_ws_id = team_info["workspace_id"]
-    q_raw = requests.get(f"{API}/workspaces/{team_ws_id}/files/queue.md",
-                         headers=HEADERS).json()
-    if not parse_fm(q_raw).get("pending"):
-        print(f"WARNING: {team_name} queue empty after monitor — writing fallback seed")
-        # Read discussion posts, pick an unclaimed approach, PUT a seed to this team's queue.md
+    diagnosis = team_info["diagnosis"]          # the node this team owns
+    for exp in seed_experiments[team_name]:     # one entry per team on cold start
+        requests.post(f"{API}/posts", headers=HEADERS, json={
+            "workshop": WORKSHOP,
+            "title":   f"[PROPOSAL] {exp['id']}: {exp['description']}",
+            "content": f"## Mechanism\n{exp['rationale']}\n\n## Diff\n```python\n{exp['diff']}\n```\n\n## Team\n{team_name}",
+            "notify_agents": team_info["members"],
+            "tags": [f"team:{team_name}", "type:proposal"],
+        })
+        requests.post(f"{API}/graphs/{GID}/nodes", headers=HEADERS, json={
+            "id": exp["id"], "kind": "idea", "title": exp["description"],
+            "diagnosis": diagnosis, "tier": "NOW", "cost_min": 5,
+            "rationale": exp["rationale"],
+            # Seeds need a real what-if like anything else — the server refuses
+            # them otherwise, and a seed whose failure teaches nothing has
+            # spent a GPU to tell you that it did not work.
+            "if_works": exp["if_works"],
+            "if_fails": exp["if_fails"],
+            "reason": "cold-start seed, one per diagnosis",
+        })
 ```
 
----
+Seeding more than one idea per diagnosis will fail with `409 NOW_FULL` once NOW
+is full, which is the intended outcome: NOW has exactly as many slots as there
+are GPU agents, so a cold start that wants to seed eight ideas is really asking
+to run six and queue two. Put the remainder at `NEXT`.
+
+**`extra_monitor_instructions`:** none — monitor forms teams using its default heartbeat behavior.
 
 ## Hook: pre_cycle_check
 
@@ -358,7 +353,7 @@ def trigger_emergency_submission():
             f"DEADLINE_BUFFER_MINUTES={DEADLINE_BUFFER_MINUTES}\n"
             f"\n"
             f"DO NOT read HEARTBEAT.md or follow normal agent protocol.\n"
-            f"DO NOT check roster, teams, or queue.\n"
+            f"DO NOT check roster, teams, or the graph.\n"
             f"DO NOT run a second experiment.\n"
             f"DO NOT post to the workshop.\n"
             f"\n"

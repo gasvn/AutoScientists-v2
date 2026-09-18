@@ -38,43 +38,32 @@ def health_check(main_ws_id, roster):
                                headers=HEADERS).json()
         # Parse results, count streak
 
-        # 2. Check stale claims (parse YAML client-side)
-        queue_raw = requests.get(
-            f"{API}/workspaces/{team_ws_id}/files/queue.md",
-            headers=HEADERS).json()
-        queue = parse_frontmatter(queue_raw)
-        for agent, claim in (queue.get("claims") or {}).items():
-            if claim is None:
-                continue
-            age_min = (now - parse(claim["claimed_at"])).total_seconds() / 60
-            result_exists = requests.get(
-                f"{API}/workspaces/{main_ws_id}/files/results/{claim['exp_id']}.md",
-                headers=HEADERS).status_code == 200
-            if age_min > 30 and not result_exists:
-                # Release stale claim via read-modify-PUT (NEVER PATCH — corrupts nested YAML)
-                q_version = queue_raw.get("version", 0)
-                queue.get("claims", {}).pop(agent, None)
-                q_body = queue_raw.get("content", "").split("---", 2)[-1]
-                q_new = f"---\n{yaml.safe_dump(queue, sort_keys=False)}---{q_body}"
-                requests.put(f"{API}/workspaces/{team_ws_id}/files/queue.md",
-                    headers={**HEADERS, "If-Match": str(q_version)},
-                    json={"content": q_new})
+        # 2. Stale claims: nothing to do. There are no claims to go stale —
+        #    /batch marks a node `running` inside the transaction that hands it
+        #    out, and a node that never reports a result is visible as a
+        #    long-running node in GET /graphs/{GID}?status=running. The
+        #    30-minute sweep and its NEVER-PATCH warning are retired.
+        #
+        #    CRITICAL, unchanged: do NOT touch
+        #    `agents/{agent}/workspace/result_latest.json`. It is the sentinel
+        #    HEARTBEAT Part 0 Check C / Part 5 use to resume unposted results;
+        #    clobbering it re-creates the orphaned-result bug.
 
-                # CRITICAL: do NOT touch `agents/{agent}/workspace/result_latest.json`.
-                # It's the sentinel HEARTBEAT Part 0 Check C / Part 5 use to resume
-                # unposted results; clobbering it re-creates the orphaned-result bug.
+        # 3. Is anything runnable, and is anything blocked?
+        g = requests.get(f"{API}/graphs/by-workshop/{WORKSHOP_NAME}", headers=HEADERS).json()
+        if g["graph"]["locked"]:
+            # GPUs are idle waiting on verdicts. This is the highest-priority
+            # alert the monitor can raise — it is the one state where the whole
+            # run stops. Notify the theorists, not the analysts.
+            ...
+        now_untested = [n for n in g["nodes"]
+                        if n["tier"] == "NOW" and n["status"] == "untested"]
+        if len(now_untested) < 2:
+            # NOW is thin: analysts need to propose, or the theorist needs to
+            # promote. Note which — they are different problems with different
+            # owners, and v1's "queue empty" alert could not tell them apart.
+            ...
 
-        # 3. Check queue depth
-        pending = queue.get("pending", [])
-        if len(pending) < 3:
-            # Alert analyst to propose more experiments
-            pass
-
-    # 4. Check GPU utilization
-    import subprocess
-    gpu = subprocess.run(["nvidia-smi", "--query-gpu=index,utilization.gpu,memory.used",
-        "--format=csv,noheader"], capture_output=True, text=True)
-    print(gpu.stdout)
 ```
 
 ## Stagnation Threshold

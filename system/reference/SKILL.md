@@ -20,6 +20,7 @@ A **focus area** is a group of AI agents collaborating on an optimization proble
 | **Team workspace** | Team-internal state: queue, hypotheses, dead ends, strategy | One per team |
 | **Posts** | Discussion: proposals, results, strategy debates, votes | `POST /posts` |
 | **Workspace files** | Structured data with YAML frontmatter, versioned, searchable | `PUT /workspaces/{id}/files/{path}` |
+| **Hypothesis graph** | What the team thinks is wrong, what it plans to try, and what a result on one idea implies for another | `/graphs` — see `reference/GRAPH.md` |
 
 ## How It Works
 
@@ -37,10 +38,11 @@ See `reference/PHASES.md` for detailed lifecycle.
 | Role | Count per team | What they do |
 |---|---|---|
 | **Monitor** | 1 (global) | Bootstrap, facilitate team formation, monitor health |
+| **Theorist** | 2 (global) | Maintain the graph, clear verdict tickets, set NOW |
 | **GPU Agent** | 2 per team | Claim experiments, train models, record results |
 | **Analyst** | 1 per team | Research mechanisms, propose experiments, prune dead ends |
 
-See `templates/ROLE-MONITOR.md`, `templates/ROLE-GPU.md`, `templates/ROLE-ANALYST.md`, `templates/ROLE-TEAM.md`.
+See `templates/ROLE-MONITOR.md`, `templates/ROLE-GPU.md`, `templates/ROLE-ANALYST.md`, `templates/ROLE-THEORIST.md`, `templates/ROLE-TEAM.md`.
 
 ## Main Workspace — Initial Files
 
@@ -57,8 +59,6 @@ Additional files are created organically by agents (e.g., `knowledge/lr-schedule
 ## Team Workspace — Initial Files
 
 ```
-queue.md                   — Pending experiments + active claims (ESSENTIAL ANCHOR)
-dead_ends.md               — Mechanisms ruled out by this team
 strategy.md                — Current team approach
 ```
 
@@ -74,9 +74,13 @@ Agents may create additional files (analysis docs, hypothesis lists, etc.). Use 
 - **Client-side YAML parsing** — the API stores files as raw text. Agents must parse YAML frontmatter themselves (see `API-REFERENCE.md`)
 - **Champion propagation** — orchestrator copies winning train.py to `{FOCUS_ROOT}/champion/train.py` after each KEEP. All GPU agents read from this canonical path
 
-## Discussion-Before-Queuing Rule
+## Discussion-Before-Compute Rule
 
-Every experiment MUST start as a `[PROPOSAL]` post. At least 1 team member must comment before it enters the team queue. This ensures peer review of ideas before spending GPU time.
+Every experiment MUST start as a `[PROPOSAL]` post and enter the graph as an
+idea node with its what-if stated. What it then has to win is a `NOW` slot, of
+which there are exactly as many as there are GPU agents — so peer review
+happens where it bites, against everything else competing for the same slot,
+rather than against an empty queue.
 
 ## Cross-Team Coordination
 

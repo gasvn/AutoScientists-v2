@@ -31,7 +31,7 @@ Before forming any opinion, read what actually happened:
 
 - `logs/experiments.jsonl` and individual `agents/*/cycle_result.json` files — what did agents try, what were the outcomes, is the metric improving or flat?
 - `logs/sessions.jsonl` — did all agents complete? did any time out or fail silently?
-- Each team's `queue.md` — are there pending experiments? are queues going empty? are the same ideas appearing repeatedly?
+- The graph — `GET /graphs/by-workshop/{WORKSHOP}` and `/audit`. Is NOW full? Has it been locked on open verdicts? Are ideas being cut with a `resurrect_if`, or just dropped? Are the same bets being proposed under different names?
 - Workshop posts — are agents posting substantive [RESULT] and [INSPIRATION] content, or formulaic boilerplate? are ideas being picked up across teams?
 - `champion/SOURCE` — when did the champion last improve? how many cycles ago?
 - `system/templates/ROLE-ANALYST.md` and `ROLE-GPU.md` — what are agents actually being asked to do?
@@ -80,9 +80,10 @@ Based on your diagnosis, make the most direct fix you can. Edit the relevant fil
 **What you can change:**
 - `system/templates/ROLE-ANALYST.md` — how analysts propose and prioritize experiments
 - `system/templates/ROLE-GPU.md` — how compute agents run experiments and share results
+- `system/templates/ROLE-THEORIST.md` — how results are digested and NOW is set
 - `system/reference/*.md` — coordination protocols and shared guidelines
 - `task/TASK.md` or `task/LAUNCH.md` — task clarity, hints, evaluation guidance
-- Team `queue.md` files directly — seed experiments if queues are empty
+- The graph directly — promote or demote ideas if NOW is thin, but say why in the node's `reason`; a silent re-tier by the orchestrator is indistinguishable from a bug
 
 **What you cannot change:**
 - Agent workspaces (`agents/*/workspace/`)

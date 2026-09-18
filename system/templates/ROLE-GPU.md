@@ -230,8 +230,9 @@ self-design a GPU-native experiment instead.
 
 Paradigms: LightGBM/XGBoost, SVR, RF/ExtraTrees, Gaussian Process, Offline pretrained foundation model embeddings 
 
-**Pick the paradigm your team was assigned in queue.md. If the queue is empty, pick the
-highest-value unclaimed paradigm NOT in the registry.**
+**Pick the paradigm named by the idea node `/batch` handed you. If NOW is empty,
+do not invent one — post `[BLOCKED]` naming the highest-value paradigm missing
+from the registry, so an analyst can propose it and the team can rank it.**
 
 #### 2a-iv. Low-value experiment types to avoid
 
@@ -274,7 +275,7 @@ if "fold_contiguous" in task_content:
 
 **Why this matters:** Task specs may specify a particular data split (e.g., `fold_contiguous_5` instead of `fold_random_5`). Using the wrong split will invalidate all results.
 
-### Step 3 — Claim Experiment from Team Queue (REQUIRED)
+### Step 3 — Ask the Graph for Work (REQUIRED)
 
 **Safety: abort if a prior unposted result still sits in `result_latest.json`** (HEARTBEAT Part 0 Check C should have caught this; verify once more to prevent orphaned results):
 
@@ -288,134 +289,56 @@ if _p.exists():
         raise RuntimeError(f"[SAFETY] unposted result for {_pend.get('exp_id')} — re-enter HEARTBEAT, go to Part 5")
 ```
 
-Check your team's queue for pending experiments.
+One call. The server picks the work and claims it in the same transaction.
 
 ```python
-queue_raw = requests.get(f"{API}/workspaces/{TEAM_WS_ID}/files/queue.md",
-                         headers=HEADERS).json()
-queue = parse_frontmatter(queue_raw)
-pending = queue.get("pending", [])
+GRAPH = requests.get(f"{API}/graphs/by-workshop/{WORKSHOP_NAME}", headers=HEADERS).json()
+GID   = GRAPH["graph"]["id"]
 
-if pending:
-    # Normal path: claim from queue
-    item = pending[0]
-else:
-    # EMPTY QUEUE — self-propose a bold experiment within your team's
-    # dimension. Read your team's strategy.md, dead_ends.md, and the
-    # champion code to pick the highest-value untested change. Then:
-    #   1. Post a [PROPOSAL] to the workshop (full rationale + diff)
-    #   2. Add it to your team's queue.md
-    #   3. Claim it below
-    # This maintains the full API trail while not wasting GPU time.
-    # Teams are HYPOTHESIS-based, not axis-based — propose any axis as
-    # long as the change is consistent with your team's hypothesis.
-    # Prefer changes that are:
-    #   - Bold (ambition quota: ≥10% param change, or structural variant)
-    #   - Not in dead_ends.md
-    #   - Grounded in champion code analysis, not speculation
-    item = self_designed_item  # you create this from your analysis
+r = requests.post(f"{API}/graphs/{GID}/batch", headers=HEADERS, json={"n": 1})
+
+if r.status_code == 423:
+    # Verdict tickets are open: a result landed and the team has not yet ruled
+    # on the ideas it affected. Do NOT freelance an experiment — the thing that
+    # is blocked may be exactly the thing that just became pointless. Post a
+    # [BLOCKED] comment naming the open tickets and exit; the theorist clears
+    # them and the orchestrator relaunches you.
+    print(r.json()["hint"])
+    ... post [BLOCKED], exit cleanly ...
+
+item = r.json()
+if not item["claimed"]:
+    # NOW is empty or everything in it is redundant with what is already
+    # running. `hint` says which. Post it and exit — an idle GPU is the
+    # correct outcome when the team has not decided what is worth running.
+    print(item["hint"])
+    ... exit cleanly ...
+
+exp = item["claimed"][0]
+EXPERIMENT_ID = exp["id"]
 ```
 
-**Every experiment must have a full API trail:** [PROPOSAL] post → queue
-entry → claim → training → result file → [RESULT] post. Self-designed
-experiments follow the same trail; the only difference is the GPU agent
-writes the proposal instead of an analyst.
+The returned node carries everything you need: `title`, `rationale`, and the
+`if_works` / `if_fails` the proposer committed to. **Read them before you
+start.** You have to say afterwards which branch reality landed in, and you
+cannot do that honestly if you first read them at the end.
 
-**Every queue item and [PROPOSAL] MUST include axis / direction / value
-tags.** These feed the empirical-priors ranking, direction-diversity
-check, and failure-range check. Claiming or self-designing an item
-without these tags is forbidden — if the queue item is missing them,
-reject the claim and post a [SUGGESTION] asking the analyst to fix the
-queue.
+**What this replaced.** The claim dance (read queue, check `claims`, PUT with
+`If-Match`, retry on 409), the `discussion_pending` gate and its two
+starvation overrides, and the monitor's 30-minute stale-claim sweep — all gone.
+None of it was research; it was working around a file that could not be
+updated atomically by ten agents at once.
 
-**Teams are hypothesis-based, not axis-based.** You may propose any
-axis as long as the change is consistent with your team's hypothesis.
-If another team's proposal looks promising and shares your hypothesis's
-lens, you can claim it.
-# **Discussion-gate check:** if the item is `discussion_pending: true`,
-# verify its [PROPOSAL] post has at least one comment from a non-author
-# before claiming. A comment from the proposer themselves does not count.
-# Skip items that don't yet meet this bar and pick the next one.
-#
-# Two auto-clear overrides prevent the gate from starving the queue
-# (observed in gpt-nano-agents 2026-05-26: cycles 7-12 had GPU agents
-# posting near-empty "[GPU-REVIEW] acknowledged" comments just to satisfy
-# the gate, burning API budget for no information value):
-#
-#   1. Time-based: if the proposal was posted more than DISCUSSION_GRACE
-#      ago (default 15 min), claim it anyway. The discussion window has
-#      passed; agents who wanted to comment had their chance.
-#   2. Queue-starvation: if THIS is the only `discussion_pending: true`
-#      item remaining and there are no non-pending items either, claim
-#      it. A blocked GPU is worse than a thinly-discussed proposal.
-import time
-DISCUSSION_GRACE_SEC = 15 * 60
+**You cannot be handed a redundant experiment.** `/batch` will not give out two
+experiments that share a diagnosis, are alternatives, or would confound each
+other. If you are curious what it declined and why, `{"n": 3, "dry_run": true}`
+returns the picks and a `skipped` list with the reason for each.
 
-if item.get("discussion_pending"):
-    proposal_id = item.get("proposal_post")
-    cleared = False
-
-    # Override 1: time-based grace
-    proposed_at = item.get("proposed_at") or item.get("created_at")
-    if proposed_at:
-        try:
-            from datetime import datetime, timezone
-            t0 = datetime.fromisoformat(proposed_at.replace("Z", "+00:00"))
-            if (datetime.now(timezone.utc) - t0).total_seconds() > DISCUSSION_GRACE_SEC:
-                cleared = True  # waited long enough
-        except Exception:
-            pass
-
-    # Override 2: starvation — this is the only claimable item
-    if not cleared:
-        other_claimable = [it for it in (queue.get("pending") or [])
-                           if it.get("id") != item["id"]
-                           and not it.get("discussion_pending")]
-        if not other_claimable:
-            cleared = True  # rather claim discussion-pending than idle the GPU
-
-    # Default path: require a non-author comment
-    if not cleared and proposal_id:
-        comments = requests.get(f"{API}/posts/{proposal_id}/comments",
-                                headers=HEADERS).json().get("data", [])
-        proposer = item.get("proposed_by", "")
-        non_author = [c for c in comments
-                      if proposer not in str(c.get("author", ""))]
-        if not non_author:
-            # Not yet discussed — skip to next item
-            item = None  # fall through to next pending item or self-design
-
-# Claim via read-modify-PUT with If-Match (DO NOT use PATCH — it corrupts nested YAML
-# frontmatter like pending: lists. Confirmed to destroy queue.md across teams.)
-queue_version = queue_raw.get("version", 0)
-fm = parse_frontmatter(queue_raw)
-fm.setdefault("claims", {})[AGENT_NAME] = {"exp_id": item["id"], "claimed_at": now}
-body = queue_raw.get("content", "").split("---", 2)[-1]
-new_content = f"---\n{yaml.safe_dump(fm, sort_keys=False)}---{body}"
-# Validate round-trip before writing
-assert yaml.safe_load(new_content.split("---")[1]) == fm, "frontmatter round-trip failed"
-r = requests.put(f"{API}/workspaces/{TEAM_WS_ID}/files/queue.md",
-    headers={**HEADERS, "If-Match": str(queue_version)},
-    json={"content": new_content})
-if r.status_code == 409:
-    # Conflict — another agent claimed concurrently. Re-read and retry or pick a different item.
-    pass
-```
-
-If queue is empty, design your own experiment. Your only constraint
-is **consistency with your team's hypothesis**: the change you propose
-must be one your team's hypothesis predicts will improve the metric.
-Any axis is fair game. This is the triangulation value of
-hypothesis-based teams — the same experiment may be proposed by
-different teams for different reasons.
-
-```python
-# Discover your team's context for self-designed experiments
-team_files = requests.get(f"{API}/workspaces/{TEAM_WS_ID}/files",
-                          headers=HEADERS).json()["files"]
-# Read strategy.md, dead_ends.md, analysis/ files from YOUR team
-# Design an experiment within YOUR dimension
-```
+**Self-designed experiments are gone too.** v1 let you invent one when the
+queue was dry, which is how a run ends up with six agents exploring six private
+hypotheses nobody else can build on. If NOW is empty, say so — that is
+information the team needs, and a `[BLOCKED]` post fixes it faster than a
+freelance experiment does.
 
 ### Step 3b — Dedup Check
 
@@ -681,48 +604,51 @@ requests.put(f"{API}/workspaces/{MAIN_WS_ID}/files/results/{item['id']}.md",
     headers=HEADERS, json={"content": result_markdown})
 ```
 
-### Step 6 — Release Claim AND Move Item to Completed
+### Step 6 — Report the Result to the Graph
 
-Atomically do BOTH in a single read-modify-PUT: drop the claim AND move
-the experiment record from `pending:` → `completed:`. Doing only the first
-(the historic pattern) leaves stale rows in `pending:`, forcing the next
-analyst cycle to hand-prune the queue before they can propose. Observed in
-gpt-nano-agents 2026-05-26: cycles 2-4 each had analysts spending several
-turns cleaning up DISCARDed-but-still-pending items.
+There is no claim to release and no queue row to move. One call records the
+outcome and opens the verdict tickets:
 
 ```python
-# Read-modify-PUT with If-Match (NEVER PATCH — corrupts nested pending: list).
-# Missing claim or 409 is benign on resume (monitor's 30-min sweep may have cleared it).
-from datetime import datetime, timezone
-q_raw = requests.get(f"{API}/workspaces/{TEAM_WS_ID}/files/queue.md", headers=HEADERS).json()
-q_fm  = parse_frontmatter(q_raw)
-
-claim_removed = q_fm.get("claims", {}).pop(AGENT_NAME, None) is not None
-
-# Move the just-finished item from pending → completed in the same write.
-pending = q_fm.get("pending", []) or []
-completed = q_fm.get("completed", []) or []
-remaining = []
-for it in pending:
-    if it.get("id") == exp_id:
-        it = dict(it)
-        it["completed_at"] = datetime.now(timezone.utc).isoformat()
-        it["completed_by"] = AGENT_NAME
-        it["outcome"]      = outcome  # KEEP / DISCARD / FAILED from Step 5
-        it["val_score"]    = our_metric
-        completed.append(it)
-    else:
-        remaining.append(it)
-q_fm["pending"]   = remaining
-q_fm["completed"] = completed
-
-if claim_removed or len(remaining) != len(pending):
-    q_body = q_raw.get("content", "").split("---", 2)[-1]
-    q_new  = f"---\n{yaml.safe_dump(q_fm, sort_keys=False)}---{q_body}"
-    requests.put(f"{API}/workspaces/{TEAM_WS_ID}/files/queue.md",
-        headers={**HEADERS, "If-Match": str(q_raw.get("version", 0))},
-        json={"content": q_new})  # 409 OK — continue to Step 7/8
+r = requests.post(f"{API}/graphs/{GID}/nodes/{EXPERIMENT_ID}/result",
+                  headers=HEADERS, json={
+    "outcome": "worked" if is_keep else ("failed" if diff_applied else "inconclusive"),
+    "matched": matched_branch,       # "works" | "fails" | "surprise"  — see below
+    "metric": val_score,
+    "observation": what_you_actually_saw,   # >= 20 chars, and make it count
+})
+resp = r.json()
+print(resp["hint"])                  # how many ideas this result put back in play
 ```
+
+**`matched` is the judgement only you can make.** You read this idea's
+`if_works` and `if_fails` before you started. Which one did reality land in?
+
+- `works` / `fails` — it landed in that branch
+- `surprise` — **neither**: something happened the proposer did not anticipate
+
+Answer `surprise` honestly. It is not a failure report; it sends the diagnosis
+itself back for rework, which is the right response to discovering that the
+team's model of the problem is wrong. Marking a surprise as a plain `fails`
+hides the most valuable result the run can produce — and leaves everyone
+re-ranking ideas underneath a story that has just been contradicted.
+
+**`observation` is read by whoever rules on the affected ideas.** "DISCARD,
+delta +0.002" tells them nothing. What moved, what did not, and what that
+separates:
+
+> train/val gap closed from 0.14 to 0.05, so the dropout did take effect, but
+> val score moved +0.001 — inside the noise band. The regularization is working
+> and buying nothing, which points away from overfitting rather than at a weak
+> implementation.
+
+**If your diff did not apply**, report `outcome: "inconclusive"` and say so in
+the observation. The metric you measured is the baseline, not evidence about
+the idea; recording it as a failure wrongly condemns a proposal nobody tested.
+
+**If the response says the graph is now locked**, that is expected — your result
+affected other ideas and the team has to rule on them before more compute goes
+out. Do not start another experiment. Finish your cycle (Step 8) and exit.
 
 ### Step 7 — Update Champion (KEEP only)
 
@@ -967,43 +893,25 @@ rl.write_text(json.dumps({**prior,
 }, indent=2, default=str))
 ```
 
-**If DISCARD:** write the result to `dead_ends.md` in your team workspace so analysts and other
-GPU agents skip this mechanism family. Use If-Match to avoid clobbering concurrent writes.
+**If DISCARD: you have already done the work.** The `POST .../result` in Step 6
+recorded the outcome and opened a verdict ticket on every idea your team's
+stated relations say is affected. There is no `dead_ends.md` to append to, and
+no If-Match race to lose.
 
-```python
-if outcome == "DISCARD":
-    de_raw = requests.get(f"{API}/workspaces/{TEAM_WS_ID}/files/dead_ends.md",
-                          headers=HEADERS).json()
-    de_content = de_raw.get("content", "# Dead Ends\n\n")
-    de_version = de_raw.get("version", 0)
+That matters more than it sounds. The old file was write-only in practice: an
+agent appended a row, and whether anyone acted on it depended on an analyst
+re-reading the file on some later cycle. Meanwhile the queue still held
+proposals from the family that had just failed, and GPU agents were already
+running them. The audit in `eval/replay/README.md` measured the result — most
+of the compute in team-labelled v1 runs went to the third-or-later consecutive
+failure within a team since its last success.
 
-    # Structured entry — REQUIRED. Future proposals check whether their
-    # (axis, direction, value) falls inside a recorded DISCARD range.
-    # Unstructured free-text entries defeat the failure-range check and
-    # are not permitted.
-    axis = item.get("axis") or "UNKNOWN"
-    direction = item.get("direction") or "UNKNOWN"
-    value = item.get("value")
-    fam = "_".join(exp_id.split("_")[:2])
-    entry = (
-        f"\n- exp_id: {exp_id}\n"
-        f"  axis: {axis}\n"
-        f"  direction: {direction}\n"
-        f"  value: {value}\n"
-        f"  delta: {delta:+.6f}\n"
-        f"  family: {fam}\n"
-        f"  date: {datetime.now(timezone.utc).date()}\n"
-        f"  reason: {experiment_description[:160].replace(chr(10), ' ')}\n"
-    )
+A ticket cannot be ignored the way a file could: the graph is locked until
+someone answers it, by name, with a reason.
 
-    r = requests.put(f"{API}/workspaces/{TEAM_WS_ID}/files/dead_ends.md",
-                     headers={**HEADERS, "If-Match": str(de_version)},
-                     json={"content": de_content + entry})
-    if r.status_code == 409:
-        print("dead_ends.md conflict — skipping write (analyst will update next cycle)")
-    else:
-        print(f"Recorded DISCARD in dead_ends.md (HTTP {r.status_code})")
-```
+Your one remaining job is to make the ticket answerable. That is the
+`observation` you wrote in Step 6 — it is the only thing the person ruling on
+those ideas will have to go on.
 
 ### Step 8 — Post Result to Workshop (MANDATORY)
 
