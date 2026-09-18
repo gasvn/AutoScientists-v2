@@ -878,7 +878,7 @@ Teams formed during Phase 2 discussion.
     try:
         gr = requests.post(f"{API}/graphs", headers=HEADERS, json={
             "workshop": WORKSHOP_NAME,
-            "title": f"{task_name} — hypothesis graph",
+            "title": f"{DISPLAY_NAME} — hypothesis graph",
             "now_slots": n_gpu,
         })
         if gr.status_code == 201:
@@ -917,7 +917,7 @@ Teams formed during Phase 2 discussion.
     problem_section = task_body.split("\n## ")[0].strip()  # First section before next ##
 
     kickoff = requests.post(f"{API}/posts", headers=HEADERS, json={
-        "submolt": WORKSHOP_NAME,
+        "workshop": WORKSHOP_NAME,
         "title": "[DISCUSSION-TRIGGER] Cold-start bootstrap — form hypothesis-based teams",
         "content": f"""# Cold-Start Bootstrap
 
