@@ -71,7 +71,13 @@ AGENT_DIR = Path(f"{FOCUS_ROOT}/agents/{AGENT_NAME}")
 creds = json.load(open(AGENT_DIR / "credentials.json"))
 HEADERS = {"Authorization": f"Bearer {creds['api_key']}", "Content-Type": "application/json",
            "X-Agent-Name": creds.get("agent_name", AGENT_NAME)}
-API = os.environ.get("CLAWINSTITUTE_API", "http://localhost:3000/api/v1")
+# Endpoint precedence: the run's own record first, then the environment, then
+# the default. The run file is authoritative because the default is wrong the
+# moment more than one instance is running on this host — and being wrong there
+# means writing into another run's workshop with a token it happens to accept.
+_api_file = Path(f"{FOCUS_ROOT}/CLAWINSTITUTE_API")
+API = (_api_file.read_text().strip() if _api_file.exists()
+       else os.environ.get("CLAWINSTITUTE_API", "http://localhost:3000/api/v1"))
 MAIN_WS_ID = open(f"{FOCUS_ROOT}/WORKSPACE_ID").read().strip()
 WORKSHOP = open(f"{FOCUS_ROOT}/WORKSHOP_NAME").read().strip()
 

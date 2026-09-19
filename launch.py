@@ -793,6 +793,11 @@ def main():
     # Save workspace ID and run metadata locally
     (ROOT / "WORKSPACE_ID").write_text(ws_id)
     (ROOT / "WORKSHOP_NAME").write_text(WORKSHOP_NAME)
+    # Record which server this run lives on. Without it every agent falls back
+    # to the localhost:3000 default, which on a machine running more than one
+    # instance means writing into somebody else's workshop — silently, because
+    # the token is accepted there too.
+    (ROOT / "CLAWINSTITUTE_API").write_text(API)
     (ROOT / "run_metadata.json").write_text(json.dumps({
         "run_id": RUN_ID,
         "workshop": WORKSHOP_NAME,
