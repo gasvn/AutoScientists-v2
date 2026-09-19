@@ -485,9 +485,15 @@ most needs:
 
 3. **Relate what already exists.** The highest-value contribution in a graph
    that already has ideas. Ask of each pair: do these collect the same payoff
-   (`alternative` — one working makes the other worth less), or do they act
-   through different mechanisms (`independent` — they can share a batch)?
-   Those two edges decide what gets cut and what runs in parallel.
+   (`alternative` — one working makes the other worth less), do they act
+   through different mechanisms (`independent` — they can share a batch), or
+   are they simply the same thing said twice (`restates`)? Those edges decide
+   what gets cut and what runs in parallel.
+
+   **If you are a theorist, this is your round and it has two extra duties** —
+   merging duplicate diagnoses and filling NOW. Read `ROLE-THEORIST.md` Step 0
+   and do that instead of adding more ideas of your own. Nobody else may fill
+   NOW, and until someone does, every GPU in the run idles.
 
 4. **Find a gap.** What constant, mechanism or failure mode has nobody stated
    a diagnosis for? Post `[GAPS]` and add the diagnosis. The most valuable

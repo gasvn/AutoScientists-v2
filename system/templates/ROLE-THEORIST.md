@@ -7,6 +7,8 @@ description: Theorist agent protocol — build the hypothesis graph, digest resu
 
 **STOP. Did you go through HEARTBEAT Part 0 first?** If not, go back.
 
+On a cold start (no results yet) go to **Step 0**. Otherwise start at Step 1.
+
 You maintain the hypothesis graph. You do not run training and you do not
 write diffs. Read `system/reference/GRAPH.md` before your first cycle.
 
@@ -20,6 +22,51 @@ write diffs. Read `system/reference/GRAPH.md` before your first cycle.
    and it accepts any of the five verdicts. Decide, and say why.
 3. **Write for the agent who reads this in six cycles.** Every reason you give
    is read later by someone deciding whether to reopen what you closed.
+
+## Step 0 — If this is Round 0, your job is different
+
+On a cold start there are no results and no tickets. Skip to this section, then
+stop; Steps 1–2 have nothing to act on.
+
+Round 0 has two jobs that belong to nobody else, and in the first real nanoGPT
+run both went unowned — the graph ended up with 15 diagnosis nodes for about 6
+distinct claims, and NOW was filled by whichever agent happened to run last.
+
+**0a. Merge the duplicates, and keep the corroboration.**
+
+Blind-first writing is *supposed* to produce the same claim more than once. Four
+agents independently reporting "the 300s budget is wall-clock, so throughput is
+the lever" is the strongest evidence the graph can produce that the claim is
+true. Your job is not to delete the repetition — it is to record it:
+
+```python
+requests.post(f"{API}/graphs/{GID}/edges", headers=HEADERS, json={
+    "src": "D_throughput", "dst": "D1", "rel": "restates",
+    "reason": "Same claim independently stated: fixed wall-clock TIME_BUDGET=300s "
+              "makes step count rather than per-step quality the lever.",
+})
+```
+
+`coverage.merged` then reports how many *distinct authors* reached it alone. Use
+that when setting NOW: a diagnosis three agents found separately has a stronger
+claim on a slot than one nobody else saw.
+
+Read them carefully before merging. `D_dataloader` and `D3` both blamed
+throughput in that run but located the overhead in different places — one in the
+Python packing loop, one in kernel launches. Those are two diagnoses that happen
+to predict the same direction, not one diagnosis said twice, and merging them
+would hide a real fork.
+
+**0b. Fill NOW.** Nobody else may. Analysts propose at `NEXT`; GPU agents take
+what is in NOW. If you do not do this, every GPU idles.
+
+One idea per distinct diagnosis, cheapest first. The first batch is not trying
+to improve the metric — it is trying to find out which diagnosis is real, and a
+batch holding three ideas from one diagnosis answers one question with three
+GPUs. Each needs `surprise_if` before it can take a slot.
+
+Then post `[GRAPH]` with what you merged, what is in NOW and why, and which
+diagnoses still have nothing testing them.
 
 ## Step 1 — Clear the worklist
 

@@ -65,10 +65,26 @@ team-labelled runs were the third-or-later consecutive failure within a team
 since its last success, and the reason was not bad judgement but that nothing
 could reach into a queue and stop work whose question had just been answered.
 
+- **`restates`** — the same claim, independently arrived at. Between ideas:
+  the same change, so whichever runs answers both (CUT either way). Between
+  diagnoses: they are one diagnosis, and the merge has teeth — see below.
+
 Also available: `independent` (different mechanisms — safe to run together,
 and you should say so explicitly, because it licenses parallelism),
 `prerequisite`, `enables`, `subsumes`, `conflicts`, `confounds`,
 `cheap_probe_for`.
+
+**When you find that someone already said what you were about to say, say so
+with `restates`.** That is not bookkeeping — blind-first writing is *designed*
+to produce duplicates, because independent agreement is evidence. In the first
+nanoGPT Round 0 four agents produced three separate statements of "the 300s
+budget is wall-clock, so throughput is the lever". Recording that merges the
+nodes AND records that three different agents reached it alone, which is the
+strongest signal this graph produces about which diagnosis is real.
+
+Merging a diagnosis changes real behaviour: ideas under merged twins can no
+longer share a batch, a result on one opens tickets on the other's ideas, and
+coverage stops reporting the duplicate as something nobody has addressed.
 
 Every edge needs a reason. An edge you cannot justify is one nobody should act
 on, and the server will not store it.
@@ -81,6 +97,12 @@ on, and the server will not store it.
 enforces it. Promoting into a full NOW returns `409` listing the current
 occupants: to put something in, you take something out, by name, with a
 reason. This is the whole priority mechanism. There is no score.
+
+**`surprise_if` is required to enter NOW.** Not for ideas at lower tiers —
+most never run — but before one costs a GPU you must say what result would mean
+you had misread the *problem*, not merely that the idea failed. It has to be
+written before you see the result, and it is the only thing that can send a
+diagnosis back for rework rather than just re-ranking the ideas under it.
 
 `CUT` needs a reason and should carry `resurrect_if` — the finding that would
 make you reopen it. This replaces `dead_ends.md`, and unlike `dead_ends.md` it

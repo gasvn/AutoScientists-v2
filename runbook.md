@@ -123,15 +123,26 @@ The round has a shape, and the order matters:
    training curve — *before reading anyone else's*. Launching them in parallel
    is what makes this blind; do not stagger them. Six agents that have read
    each other's diagnoses are one agent with extra latency.
-2. **Merge into 3–6 diagnosis nodes.** Keep a `D_unknown` and never close it.
-   A graph that has accounted for everything has stopped being a model of an
-   open problem.
+2. **Merge into 3–6 diagnosis nodes** — *the theorists do this, not you.* Keep
+   a `D_unknown` and never close it; a graph that has accounted for everything
+   has stopped being a model of an open problem.
+
+   Duplicates are expected and are evidence, not waste: blind-first writing is
+   meant to have several agents reach the same claim alone. Merging with
+   `restates` records the multiplicity rather than discarding it. In the first
+   real run this step had no owner and the graph carried 15 diagnosis nodes for
+   about 6 distinct claims, with coverage reporting the duplicates as gaps and
+   sending the next round to cover what was already covered.
 3. **Ideas with their what-if.** Each hangs off a diagnosis and states what it
    would mean if it works and if it fails. The server rejects ones that do not.
 4. **Relations.** Especially `alternative` (same payoff — one working makes the
    others worth less) and `independent` (different mechanisms — safe to run
    together). Those two decide what can be cut and what can be parallelized.
-5. **Set NOW.** Exactly as many ideas as there are GPU agents.
+5. **Set NOW** — *the theorists do this too.* Exactly as many ideas as there
+   are GPU agents, one per distinct diagnosis, cheapest first. Analysts propose
+   at `NEXT` and GPU agents consume NOW, so if no theorist runs, NOW stays
+   empty and every GPU idles. In the first real run it was filled only because
+   one agent happened to run last and took it on itself.
 
 ```python
 import os
