@@ -45,7 +45,9 @@ trigger_posts = [p for p in recent if "[DISCUSSION-TRIGGER]" in p.get("title", "
 
 # A trigger is "active" if:
 #   - it was posted within the last 3 rotations, AND
-#   - fewer than 5 [DISCUSS-DONE] posts exist on it
+#   - fewer than `len(non_monitor_agents)//2 + 1` [DISCUSS-DONE]
+#     comments exist on it (a majority ENDS the round; hardcoding
+#     the count silently breaks when the roster size changes)
 if trigger_posts:
     active_trigger = trigger_posts[0]  # most recent
     done_count = count_comments_matching(active_trigger["id"], "[DISCUSS-DONE]")
@@ -506,22 +508,59 @@ costs.
 
 ### 2b2. Discussion self-termination vote — REQUIRED
 
-Before exiting a discussion cycle, decide whether ONE more round of
-discussion is needed or whether the system should return to execution.
+Before exiting a discussion cycle, decide whether ONE more round is needed or
+whether the system should start spending compute. **No orchestrator decides
+this. The agents do, by majority vote.** That was true in v1 and it is still
+true — the only thing that changed is that you now have facts to vote on
+instead of an impression.
+
+```python
+# What changed since the last round, and where the graph is thin.
+mark = last_round_marker()   # the `latest_seq` recorded on the active trigger
+                             # post; 0 on a cold start
+facts = requests.get(f"{API}/graphs/{GID}/readiness",
+                     headers=HEADERS, params={"since": mark}).json()
+```
+
+`readiness` has **no `ready` field, on purpose**. Whether reasoning has gone as
+far as it usefully can is a scientific judgement, and it is yours. What the
+server will tell you is:
+
+- `since_last_round` — diagnoses, ideas and relations added; whether NOW's
+  composition actually changed
+- `coverage` — diagnoses nobody has proposed a test for, diagnoses with nothing
+  in NOW, ideas related to nothing
+- `open_verdicts` — results nobody has ruled on yet
+
 Post exactly ONE of the following as a comment on the active
-`[DISCUSSION-TRIGGER]` thread:
+`[DISCUSSION-TRIGGER]` thread, **citing the facts you used**:
 
-- **`[DISCUSS-MORE] your-reason`** — new axes still surfacing,
-  disagreements not resolved, or your analysis added substantial new
-  signal. The system continues in discussion mode next rotation.
-- **`[DISCUSS-DONE] your-reason`** — priorities have converged,
-  workshop has enough concrete proposals, your round contributed
-  little new content. The system exits discussion mode once ≥5 agents
-  post `[DISCUSS-DONE]`.
+- **`[DISCUSS-MORE] your-reason`** — a real gap remains. Good reasons: a
+  diagnosis has no idea under it; ideas are related to nothing, so their
+  results would teach us nothing about each other; NOW does not cover the
+  distinct diagnoses, so the batch cannot tell them apart; you disagree with
+  a stated diagnosis and the disagreement is resolvable by argument rather
+  than by experiment.
+- **`[DISCUSS-DONE] your-reason`** — another round would not change the plan.
+  The strongest evidence is mechanical: this round added no diagnosis, no
+  relation, and did not change NOW. When thinking stops moving the plan, only
+  data will — and that is the moment to spend GPUs, not a problem to fix.
 
-This is a self-regulating termination signal. No orchestrator decides
-when to stop discussing — the agents do, by majority vote (5 of 9
-non-monitor agents).
+**Do not vote `[DISCUSS-MORE]` merely because you can imagine more ideas.**
+There are always more ideas. The question is whether the next experiment would
+be chosen differently after another round of talking. If not, vote DONE.
+
+**Threshold — compute it, do not hardcode it.** The round ends when **more than
+half of the non-monitor agents** have posted `[DISCUSS-DONE]`:
+
+```python
+import os
+non_monitor = [a for a in os.listdir(f"{FOCUS_ROOT}/agents") if "monitor" not in a]
+threshold = len(non_monitor) // 2 + 1      # 11 agents -> 6
+```
+
+v1 hardcoded "5 of 9" and that number then silently stopped being a majority
+when the roster grew. Count the agent directory.
 
 ### 2c. Engagement rules
 

@@ -61,7 +61,9 @@ Check these conditions at the start of every analyst cycle:
 
 ```python
 # Count rotations since the most recent KEEP. A "rotation" is a
-# complete cycle of the rotation schedule (all 9 non-monitor agents).
+# complete cycle of the rotation schedule (all non-monitor agents —
+# count the agents/ directory, do not assume 9; the roster grew when
+# theorists were added).
 # Use experiment timestamps to bucket into rotations, or count
 # workshop [RESULT] posts in batches of ~6.
 recent_keeps = [r for r in recent_results if r.outcome == "KEEP"]
@@ -91,7 +93,7 @@ trigger_conditions = (rotations_since_keep >= 3) or falsified_since_reform
 active_trigger_exists = any(
     "[DISCUSSION-TRIGGER]" in p.title
     and age_rotations(p) <= 3
-    and count_comments_matching(p.id, "[DISCUSS-DONE]") < 5
+    and count_comments_matching(p.id, "[DISCUSS-DONE]") < discuss_done_threshold()
     for p in recent_posts
 )
 ```
@@ -224,7 +226,8 @@ new_roster = {
 }
 put_main_workspace_file("teams/roster.md", yaml_dump(new_roster))
 
-# Post [TEAM-REFORMED] announcing new assignments, notifying all 9 agents.
+# Post [TEAM-REFORMED] announcing new assignments, notifying every
+# non-monitor agent (count agents/, do not assume 9).
 ```
 
 This ends the discussion round — next rotation proceeds in execute

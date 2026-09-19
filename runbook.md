@@ -175,16 +175,51 @@ layer exists (after step 2), the cheapest idea under each distinct diagnosis
 can be promoted to NOW and dispatched. The first batch is not trying to improve
 the metric; it is trying to find out which diagnosis is real.
 
-**Verify the graph exists before moving on:**
+**The agents decide when Round 0 ends. You do not.**
+
+This is v1's mechanism and it is unchanged: every agent posts
+`[DISCUSS-MORE]` or `[DISCUSS-DONE]` on the `[DISCUSSION-TRIGGER]` thread, and
+the round ends when a majority of non-monitor agents have posted DONE
+(HEARTBEAT 2b2). What changed in v2 is only that they vote on facts —
+`GET /graphs/{GID}/readiness` tells them what the last round actually added and
+where the graph is thin, and it deliberately returns no verdict of its own.
+
+Your job is to keep launching rounds until the vote lands:
 
 ```python
-g = requests.get(f"{API}/graphs/by-workshop/{WORKSHOP}", headers=HEADERS).json()
-diagnoses = [n for n in g["nodes"] if n["kind"] == "diagnosis"]
-ideas     = [n for n in g["nodes"] if n["kind"] == "idea"]
-assert len(diagnoses) >= 3, "Round 0 produced no diagnosis layer"
-assert len(ideas) >= 2 * len(diagnoses), "diagnoses with nothing to test them"
-assert any(n["tier"] == "NOW" for n in ideas), "nothing promoted to NOW"
+import os
+non_monitor = [a for a in os.listdir(FOCUS_ROOT / "agents") if "monitor" not in a]
+threshold   = len(non_monitor) // 2 + 1
+
+for round_n in range(1, MAX_ROUNDS + 1):       # MAX_ROUNDS from the profile, default 3
+    launch_all_agents(MODE="discussion")       # the block above
+    wait_for_all()
+
+    done = count_comments_matching(trigger_post_id, "[DISCUSS-DONE]")
+    print(f"round {round_n}: {done}/{threshold} agents say the plan would not change")
+    if done >= threshold:
+        break
+else:
+    # Hit the cap without a majority. Do NOT declare the graph ready yourself.
+    # Post [ROUND-0-CAPPED] saying the cap was reached and what readiness still
+    # reports as thin, and proceed — the teams keep working, and the same
+    # disagreement will resurface as a [DISCUSSION-TRIGGER] once results land.
+    ...
 ```
+
+**Do not substitute your own check for the vote.** An earlier version of this
+runbook had the orchestrator assert `len(diagnoses) >= 3` and move on. That is
+a central planner deciding when reasoning is finished, which is the thing this
+system exists not to do — and it is worse at it than the agents are, because a
+count of diagnoses cannot tell a real one from a restatement.
+
+Read `readiness` yourself if you want to know what is going on, and say so in
+your log. Just do not let it end the round.
+
+**One thing you may still hard-fail on:** if the graph has zero diagnosis nodes
+after a full round, no agent called the API at all. That is an infrastructure
+failure, not a disagreement — check `logs/raw/` for the model refusing to make
+HTTP calls (the documented haiku failure mode) before relaunching.
 
 ## Step 4 — Form teams around the diagnoses
 
