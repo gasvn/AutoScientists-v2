@@ -99,7 +99,8 @@ After agents have discussed:
 4. **After vote resolves** → create team workspaces:
 
 ```python
-def create_team(team_name, hypothesis, prediction, falsification, members):
+def create_team(team_name, hypothesis, prediction, falsification, members,
+                diagnosis_node_id):
     """Create a team organized around a falsifiable hypothesis.
 
     team_name: short label like 'throughput' or 'gradient-quality'
@@ -112,6 +113,9 @@ def create_team(team_name, hypothesis, prediction, falsification, members):
       ≥10% will KEEP".
     falsification: the bar at which the hypothesis is abandoned,
       e.g. "3 rotations of prediction-consistent experiments all DISCARD".
+    diagnosis_node_id: id of this team's diagnosis node in the hypothesis
+      graph, e.g. "D2". The team owns that node; ideas it proposes hang off
+      it, and results from any team can refute it.
     """
     ws = requests.post(f"{API}/workspaces", headers=HEADERS, json={
         "title": f"{WORKSHOP_NAME}-{team_name}",
@@ -158,7 +162,12 @@ hypothesis predicts will KEEP.
             f"teams.{team_name}": {
                 "workspace_id": ws["id"],
                 "members": members,
+                # `hypothesis` is the human-readable claim; `diagnosis` is the
+                # id of the graph node that holds it. Seeding and every later
+                # graph write need the id, so both must be recorded — a roster
+                # entry carrying only prose cannot be resolved back to a node.
                 "hypothesis": hypothesis,
+                "diagnosis": diagnosis_node_id,
             }
         }})
     return ws["id"]

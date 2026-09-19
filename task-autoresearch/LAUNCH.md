@@ -72,7 +72,16 @@ g   = requests.get(f"{API}/graphs/by-workshop/{WORKSHOP}", headers=HEADERS).json
 GID = g["graph"]["id"]
 
 for team_name, team_info in teams.items():
-    diagnosis = team_info["diagnosis"]          # the node this team owns
+    # The node this team owns. Written by create_team (reference/PHASES.md) and
+    # by the team-reform step in ROLE-ANALYST. If it is missing the roster was
+    # written by something that does not know about the graph — say so rather
+    # than dying on a KeyError three frames deep.
+    diagnosis = team_info.get("diagnosis")
+    if not diagnosis:
+        raise RuntimeError(
+            f"Team {team_name} has no `diagnosis` in teams/roster.md. Whoever "
+            f"formed the teams did not link them to graph nodes — re-run team "
+            f"formation, or patch the roster before seeding.")
     for exp in seed_experiments[team_name]:     # one entry per team on cold start
         requests.post(f"{API}/posts", headers=HEADERS, json={
             "workshop": WORKSHOP,

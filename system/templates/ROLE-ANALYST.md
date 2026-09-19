@@ -212,6 +212,11 @@ new_roster = {
             "falsification": hyp1_falsification,
             "workspace_id": existing_or_new_ws_id,
             "members": rebalanced_agents,
+            # REQUIRED: the id of this team's diagnosis node in the graph.
+            # Create the node first if the reformed hypothesis is new. A roster
+            # entry without it cannot be resolved back to the graph, and
+            # seeding will fail on it.
+            "diagnosis": hyp1_diagnosis_node_id,
         },
         # ... two more teams
     },
