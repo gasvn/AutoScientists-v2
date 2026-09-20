@@ -616,6 +616,35 @@ last rotation and the gap you named has since been closed, post
 `[DISCUSS-DONE]` now and say which gap closed. Holding a stale position because
 you already spoke is not caution, it is noise.
 
+### 2b3. When the vote closes, somebody has to commit the roster — REQUIRED
+
+A discussion round that converges and changes nothing is worse than no round:
+the agents agreed, and the team structure they agreed to replace is still in
+place.
+
+**If `done >= threshold` after your vote, and you are the alphabetically-last
+analyst who participated in this round, commit `teams/roster.md` now** — follow
+`ROLE-ANALYST.md` Step 0.25 and then post `[TEAM-REFORMED]`.
+
+Do it from here, in Part 2. Step 0.25 says it is required during discussion
+rounds, but it lives in the role protocol that only Part 4 reaches, and
+discussion rounds never get to Part 4. Nothing else writes the roster during a
+discussion round, so without this the round ends and the roster does not move.
+
+Two ways that bites, and the second is worse:
+
+- **Cold start.** An empty roster sends every agent to Part 2 via Check B. If
+  the step that fills the roster is itself only reachable from Part 4, the
+  system discusses forever. (The monitor normally breaks this at bootstrap —
+  runbook Step 4 — but do not rely on it having run.)
+- **Mid-run reform.** A team's hypothesis is falsified, an analyst posts
+  `[DISCUSSION-TRIGGER]`, everyone converges on a better structure, the vote
+  closes — and then execution resumes under the old, already-refuted teams,
+  with no error anywhere. The reasoning happened and was silently discarded.
+
+If you are not the last analyst, say in your vote comment who is, so it is
+visible that the step is owed and by whom.
+
 ### 2c. Engagement rules
 
 - Post at most **1 new thread** per round (avoid flooding)

@@ -195,6 +195,11 @@ and need to widen the search."
 
 ### Step 0.25 — Team Reform (Last Analyst Only) — REQUIRED DURING DISCUSSION ROUNDS
 
+> **Reached from HEARTBEAT Part 2 (2b3), not from here.** This file is injected
+> at Part 4-Role, which discussion rounds skip entirely — so a step "required
+> during discussion rounds" would never run if Part 2 did not call it. The
+> procedure below is the content; Part 2 decides when it fires.
+
 If MODE=discussion AND the active `[DISCUSSION-TRIGGER]` has ≥5
 `[DISCUSS-DONE]` comments (convergence reached) AND you are the
 **alphabetically last analyst name that has run in this rotation**:
