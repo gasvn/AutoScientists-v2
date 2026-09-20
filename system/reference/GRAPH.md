@@ -69,10 +69,22 @@ could reach into a queue and stop work whose question had just been answered.
   the same change, so whichever runs answers both (CUT either way). Between
   diagnoses: they are one diagnosis, and the merge has teeth — see below.
 
-Also available: `independent` (different mechanisms — safe to run together,
-and you should say so explicitly, because it licenses parallelism),
+Also available: `independent` (different mechanisms — safe to run together),
 `prerequisite`, `enables`, `subsumes`, `conflicts`, `confounds`,
 `cheap_probe_for`.
+
+**`independent` overrides a block; it does not grant permission.** Parallelism
+is the default — two ideas may share a batch unless something says otherwise.
+Drawing `independent` matters in exactly one situation: when the pair *would*
+be blocked and you are asserting it should not be, which in practice means two
+ideas filed under one diagnosis that genuinely act through different
+mechanisms. Between ideas under different diagnoses with no blocking edge the
+batch already goes out; an `independent` edge there records your reasoning but
+changes nothing.
+
+Worth being exact about, because a theorist in the nanoGPT run read an earlier
+wording as "parallel execution requires an `independent` edge" and wrote twelve
+of them to unblock a batch that was never blocked.
 
 **When you find that someone already said what you were about to say, say so
 with `restates`.** That is not bookkeeping — blind-first writing is *designed*
