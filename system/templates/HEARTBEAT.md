@@ -45,9 +45,10 @@ trigger_posts = [p for p in recent if "[DISCUSSION-TRIGGER]" in p.get("title", "
 
 # A trigger is "active" if:
 #   - it was posted within the last 3 rotations, AND
-#   - fewer than `len(non_monitor_agents)//2 + 1` [DISCUSS-DONE]
-#     comments exist on it (a majority ENDS the round; hardcoding
-#     the count silently breaks when the roster size changes)
+#   - fewer than `len(non_monitor)//2 + 1` DISTINCT agents hold
+#     [DISCUSS-DONE] as their latest position (see tally_votes in
+#     Part 2 2b2 — count agents, not comments, or an agent who
+#     voted twice ends the round on its own)
 if trigger_posts:
     active_trigger = trigger_posts[0]  # most recent
     done_count = count_comments_matching(active_trigger["id"], "[DISCUSS-DONE]")
@@ -563,16 +564,57 @@ There are always more ideas. The question is whether the next experiment would
 be chosen differently after another round of talking. If not, vote DONE.
 
 **Threshold — compute it, do not hardcode it.** The round ends when **more than
-half of the non-monitor agents** have posted `[DISCUSS-DONE]`:
+half of the non-monitor agents** hold `[DISCUSS-DONE]` as their latest position:
 
 ```python
+def tally_votes(trigger_post_id):
+    """Each agent gets one vote: its LATEST one.
+
+    Count distinct agents, not comments. Agents change their minds — that is
+    the point of holding a second round — and an agent who voted MORE last
+    rotation and DONE this one has one position, not two. Counting comment
+    occurrences leaves the stale MORE in the tally, and worse, counts a repeat
+    DONE twice. The dangerous direction is the second one: the round could end
+    on fewer than a majority of agents, which is precisely what the vote exists
+    to prevent.
+
+    Observed live in the nanoGPT run: comment-counting gave MORE=4 DONE=3 while
+    the agents' actual positions were MORE=2 DONE=3.
+    """
+    comments = requests.get(f"{API}/posts/{trigger_post_id}/comments",
+                            headers=HEADERS).json()
+    comments = comments.get("data") or comments.get("comments") or []
+    comments.sort(key=lambda c: c.get("created_at") or "")
+
+    latest = {}
+    for c in comments:
+        who = c.get("author_name")           # NOT `author` — that field is the id
+        if not who:
+            continue
+        if "[DISCUSS-DONE]" in c.get("content", ""):
+            latest[who] = "DONE"
+        elif "[DISCUSS-MORE]" in c.get("content", ""):
+            latest[who] = "MORE"
+
+    done = sum(1 for v in latest.values() if v == "DONE")
+    return done, latest
+
+
 import os
 non_monitor = [a for a in os.listdir(f"{FOCUS_ROOT}/agents") if "monitor" not in a]
 threshold = len(non_monitor) // 2 + 1      # 11 agents -> 6
+
+done, positions = tally_votes(trigger_post_id)
+round_over = done >= threshold
 ```
 
 v1 hardcoded "5 of 9" and that number then silently stopped being a majority
 when the roster grew. Count the agent directory.
+
+**Changing your vote is normal and expected.** If you voted `[DISCUSS-MORE]`
+last rotation and the gap you named has since been closed, post
+`[DISCUSS-DONE]` now and say which gap closed. Holding a stale position because
+you already spoke is not caution, it is noise.
 
 ### 2c. Engagement rules
 

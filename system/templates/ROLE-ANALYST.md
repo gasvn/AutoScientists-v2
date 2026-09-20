@@ -93,7 +93,7 @@ trigger_conditions = (rotations_since_keep >= 3) or falsified_since_reform
 active_trigger_exists = any(
     "[DISCUSSION-TRIGGER]" in p.title
     and age_rotations(p) <= 3
-    and count_comments_matching(p.id, "[DISCUSS-DONE]") < discuss_done_threshold()
+    and tally_votes(p.id)[0] < discuss_done_threshold()   # distinct agents, latest vote
     for p in recent_posts
 )
 ```
