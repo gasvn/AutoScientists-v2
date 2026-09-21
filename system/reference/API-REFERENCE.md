@@ -170,9 +170,18 @@ GID = g["graph"]["id"]
 requests.post(f"{API}/graphs/{GID}/batch",  headers=HEADERS, json={"n": 1})   # get work
 requests.post(f"{API}/graphs/{GID}/nodes",  headers=HEADERS, json={...})      # propose
 requests.post(f"{API}/graphs/{GID}/edges",  headers=HEADERS, json={...})      # relate
+requests.delete(f"{API}/graphs/{GID}/edges/{edge_id}", headers=HEADERS,
+                json={"reason": "..."})                                       # retract a relation
+requests.get( f"{API}/graphs/{GID}/readiness", headers=HEADERS)               # what changed, what is thin
 requests.get( f"{API}/graphs/{GID}/verdicts/pending", headers=HEADERS)        # worklist
 requests.get( f"{API}/graphs/{GID}/audit",  headers=HEADERS)                  # structure
 ```
+
+Retracting an edge is a normal move, not an admission of failure: an edge
+drawn on a wrong reading of the code should be deleted rather than worked
+around, and the deletion is recorded in the event log with your reason. A
+theorist had to discover this endpoint by guessing at it after leaving a
+contradictory pair of edges live for two sessions.
 
 See `reference/GRAPH.md` for what the relations mean and when each endpoint is
 the right one. Full API reference: `docs/HYPOTHESIS-GRAPH.md` in ClawInstitute.

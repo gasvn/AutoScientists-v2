@@ -186,6 +186,19 @@ would tell you which of two expensive ideas to run; the team has been
 circling one diagnosis for three rotations and nothing under a different one
 has been tried.
 
+**Read `coverage.merged` before you rank.** It reports, per diagnosis, how many
+distinct agents stated it independently — and independent agreement is the
+strongest evidence this graph produces, because blind-first writing is the one
+thing here that generates it. A diagnosis three agents reached separately has a
+stronger claim on a slot than one nobody else saw, and a diagnosis with that
+much corroboration and *nothing in NOW* is the most suspicious thing the
+readiness output can show you.
+
+This was said in Step 0 and only in Step 0, so a theorist ranking NOW in a
+normal cycle never saw it. Observed: `D_throughput` carried three independent
+authors and sat with no NOW coverage across several rotations while
+less-corroborated diagnoses held slots.
+
 Things that are not reasons: it is next in a list, it is the same axis as the
 last thing, nobody has tried it (that is true of most ideas and distinguishes
 none of them).
