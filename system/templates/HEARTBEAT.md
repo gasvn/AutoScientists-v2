@@ -484,6 +484,16 @@ most needs:
    you cannot make it say anything interesting, you have learned something
    about the idea.
 
+   **Account for every quantity your diagnosis names.** Write out the relation
+   the diagnosis asserts, find where each named quantity is set in the code,
+   and say for each one either what you propose to change it to or why you are
+   leaving it alone. The usual failure is not ignorance but asymmetry —
+   proposing several ways to move one side of a relation while never mentioning
+   the other, because the other looks like a given. A module-level constant is
+   not a given; it is the most direct lever you have and the cheapest to test.
+   If your rationale states `A = f(B, C)` and you propose three variations on
+   `B`, you owe an explicit sentence about `C`.
+
 3. **Relate what already exists.** The highest-value contribution in a graph
    that already has ideas. Ask of each pair: do these collect the same payoff
    (`alternative` — one working makes the other worth less), do they act

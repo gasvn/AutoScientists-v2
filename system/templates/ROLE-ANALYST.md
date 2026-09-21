@@ -929,6 +929,37 @@ Past deltas are still worth reading — they are in `logs/experiments.jsonl` and
 in the graph's own result history. Read them as evidence for an argument you
 make, not as a score that makes the argument for you.
 
+### Step 3h — Account for every quantity your diagnosis names — REQUIRED
+
+Your diagnosis is a claim about what limits the metric, and it almost always
+asserts a *relation* between named quantities. Before proposing anything:
+
+1. Write the relation out explicitly, as an equation or an inequality if you
+   can. Pull the names from the diagnosis statement and from the code it cites.
+2. For **every** named quantity in that relation, find where it is set in the
+   champion code — module-level constant, config field, derived expression.
+3. For each one, write a single line: either the change you propose, or the
+   reason you are leaving it alone.
+
+Put that accounting in your `[PROPOSAL]` post. It is short, and it is the
+cheapest check in this whole protocol.
+
+**Why this is required.** The default failure mode of idea generation is not
+ignorance, it is asymmetry: agents propose several ways to move one side of a
+relation while never mentioning the other, because the other one "looks like a
+given". A constant assigned at module scope is not a given. It is usually the
+most direct lever available and the cheapest thing to test — no engineering,
+one number.
+
+The tell is that your own rationale states the relation and then treats one of
+its terms as fixed. If you write `A = f(B, C)` and propose three variations on
+`B`, you owe an explicit sentence about `C`. "It is a constant" is not that
+sentence; every number in the file is a constant, and a human chose each one.
+
+This is orthogonal to the dedup and diversity checks: three proposals can be
+genuinely different from each other and still all sit on the same side of the
+same relation.
+
 ### Step 3.4 — Bracket Rule for Cold Numeric Axes — REQUIRED
 
 When you propose an experiment on a **numeric continuous axis** with
