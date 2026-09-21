@@ -235,6 +235,19 @@ if (memory_dir / "MEMORY.md").exists():
 # protocols) that invalidate work if missed.
 task_spec = open(f"{FOCUS_ROOT}/task/TASK.md").read()
 
+# Reconcile your memories against this file — as an enumeration, not as
+# something you might notice. For EVERY memory that states how to do
+# something, name the section of this file it came from and check that
+# section still says it. A memory you cannot trace to a section of the
+# current file is stale by default: rewrite it or delete it now.
+#
+# Do not look for contradictory wording. The conflicts that matter are
+# semantic and share no keywords with the rule that replaced them — an agent
+# that had written "check NOW's per-team split" read a protocol saying "NOW is
+# a global pool, not a per-team allocation" and reported no conflict. Ask what
+# the memory tells you to DO, then ask whether this file still tells you to do
+# that.
+#
 # IMPORTANT: HEARTBEAT.md is authoritative over your own memory files.
 # This file may have been updated since your last session with new rules.
 # If any memory file contains a procedural rule ("always X", "never Y",

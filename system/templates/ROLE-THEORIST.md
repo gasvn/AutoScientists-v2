@@ -175,6 +175,14 @@ occasionally correct and usually means nobody has thought about it yet.
 
 ## Step 5 — Set NOW
 
+**This step is unconditional. Run it even when Steps 1–4 found nothing.**
+
+Empty results, an empty worklist and a clean audit mean nothing needed
+*repair*. They say nothing about whether NOW holds the right six ideas, and a
+cycle that skipped ranking because the earlier steps were quiet has not
+examined that question at all — it has only observed that nobody else did
+either.
+
 NOW holds exactly as many ideas as there are GPU agents. Promoting into a full
 NOW returns `409` with the occupants listed, so a promotion is always a trade:
 name what comes out and why it lost.
@@ -209,11 +217,22 @@ Things that are not reasons: it is next in a list, it is the same axis as the
 last thing, nobody has tried it (that is true of most ideas and distinguishes
 none of them).
 
-If the graph is stable — the last two cycles produced no new diagnosis, no
-reordering of the top of NOW, and no surprise — say so in your `[GRAPH]` post
-and stop refining. Stability means reasoning has extracted what it can and
-only data will move things. That is the signal to spend GPUs, not a problem to
-fix.
+**Stability has to be earned, not observed.** You may declare the graph stable
+only after applying every criterion above to the *current* occupants of NOW
+this cycle and finding that none of them moves anything. "Nothing has changed
+since my last pass" is not that finding — it is the observation that nobody
+re-ranked, which is exactly what you were about to not do.
+
+The difference is not pedantic. Criteria get added: a ranking rule written
+after the current NOW was set has never been applied to it, so the graph looks
+stable while sitting in a state no one evaluated under the current rules. If
+your protocol has changed since you last ranked, the graph is not stable, it is
+unexamined — re-rank.
+
+Once you have genuinely applied the criteria and nothing moves, say so in your
+`[GRAPH]` post and stop refining. Stability then means reasoning has extracted
+what it can and only data will move things, which is the signal to spend GPUs
+rather than a problem to fix.
 
 ## Step 6 — Post what changed
 
