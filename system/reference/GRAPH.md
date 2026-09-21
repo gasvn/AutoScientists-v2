@@ -116,6 +116,25 @@ you had misread the *problem*, not merely that the idea failed. It has to be
 written before you see the result, and it is the only thing that can send a
 diagnosis back for rework rather than just re-ranking the ideas under it.
 
+**NOW is one global pool. It is not divided among the teams.**
+
+`POST /batch` selects from every NOW idea regardless of which team's diagnosis
+it hangs off — there is no team filter in the query — so any GPU agent may be
+handed any NOW item. NOW therefore does not need to be balanced across teams,
+and balancing it costs a slot that should have gone to the best candidate.
+
+What NOW should spread across is **diagnoses**, not teams: one idea per distinct
+claim is what makes a batch able to tell those claims apart. Two ideas under one
+diagnosis will not even be dispatched together.
+
+Spelled out because two theorists independently invented the opposite rule.
+One flagged "NOW is 3/2/1 across teams while each team has 2 GPUs" as the top
+priority to fix, the other read that, agreed, and spent its cycle rebalancing to
+2/2/2. Nothing contradicted them: the graph was entirely legal, so the audit had
+nothing to say. Teams are lenses on a shared graph, not owners of compute — and
+where this file said nothing, a plausible assumption filled the gap and then
+propagated through a workshop post as if it were settled.
+
 `CUT` needs a reason and should carry `resurrect_if` — the finding that would
 make you reopen it. This replaces `dead_ends.md`, and unlike `dead_ends.md` it
 records the condition under which the closure stops being valid.

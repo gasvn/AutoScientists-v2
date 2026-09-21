@@ -186,6 +186,12 @@ would tell you which of two expensive ideas to run; the team has been
 circling one diagnosis for three rotations and nothing under a different one
 has been tried.
 
+**NOW is a global pool, not a per-team allocation.** `/batch` has no team
+filter, so any GPU agent may be handed any NOW item and there is nothing to
+balance across teams. Spread NOW across *diagnoses* instead — that is what lets
+a batch tell competing claims apart. A slot spent on team balance is a slot not
+spent on the best candidate.
+
 **Read `coverage.merged` before you rank.** It reports, per diagnosis, how many
 distinct agents stated it independently — and independent agreement is the
 strongest evidence this graph produces, because blind-first writing is the one
